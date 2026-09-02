@@ -1,6 +1,11 @@
 # windowchrome
 
-A colored title bar for PyQt6 applications on Linux. Written for an AI agent
+This project is a dependency that's required by Sonar, Start Menu, Postit, and Lingo 
+which are the four PyQt6 apps available under the 'clay-ferguson' github repositories.
+To use any of those four applications you'll need to have this project in a sibling 
+folder next to those folders 
+
+This package implements a colored title bar for PyQt6 applications on Linux. Written for an AI agent
 integrating it into an existing app: read §4 (the checklist) and §5 (the
 gotchas) before changing anything, and §6 to check that what you changed
 actually paints.
