@@ -136,11 +136,15 @@ def body_window_color() -> QColor:
 
     Falls through to the application palette when the title bar was left
     alone, which is the same color it would have read anyway.
+
+    A copy, not the captured color itself — see `body_text_color()`.
     """
     body = _BODY_ROLES.get(QPalette.ColorGroup.Active, {})
-    return body.get(
-        QPalette.ColorRole.Window,
-        QApplication.palette().color(QPalette.ColorRole.Window),
+    return QColor(
+        body.get(
+            QPalette.ColorRole.Window,
+            QApplication.palette().color(QPalette.ColorRole.Window),
+        )
     )
 
 
@@ -157,11 +161,21 @@ def body_text_color() -> QColor:
 
     Falls through to the application palette when the title bar was left alone,
     which is the same color it would have read anyway.
+
+    **A copy, not the captured color itself.** `QColor` is mutable and PyQt
+    hands back the stored object, so a caller doing the obvious thing —
+    `muted = body_text_color(); muted.setAlpha(180)` — would otherwise rewrite
+    the body color this module hands to every widget, and the whole
+    application's text would come out at 70% opacity. Measured: that is exactly
+    what happened, visible as lightened antialiasing on every label in a
+    dialog.
     """
     body = _BODY_ROLES.get(QPalette.ColorGroup.Active, {})
-    return body.get(
-        QPalette.ColorRole.WindowText,
-        QApplication.palette().color(QPalette.ColorRole.WindowText),
+    return QColor(
+        body.get(
+            QPalette.ColorRole.WindowText,
+            QApplication.palette().color(QPalette.ColorRole.WindowText),
+        )
     )
 
 
@@ -219,10 +233,31 @@ class _BodyPaletteFilter(QObject):
     #: quite enough: a stylesheet set on an *ancestor* — a splitter, say, which
     #: is the parent of both its panes — repolishes the subtree below it,
     #: re-deriving those palettes from the application's after their own Polish
-    #: has already been and gone. StyleChange is what that arrives as. Nothing
-    #: here sends one back: `setPalette` raises PaletteChange, so the two
-    #: cannot chase each other.
-    _TRIGGERS = frozenset({QEvent.Type.Polish, QEvent.Type.StyleChange})
+    #: has already been and gone. StyleChange is what that arrives as.
+    #:
+    #: And `PaletteChange`, because neither of those two is late enough on its
+    #: own. **An application event filter runs before the receiver handles the
+    #: event**, so on Polish the order is: this filter corrects the palette,
+    #: and *then* `QWidget::event()` reaches `QStyleSheetStyle::polish()`,
+    #: which re-derives one from the application palette and assigns it —
+    #: overwriting the correction that was made moments earlier. Measured on a
+    #: `QComboBox` popup inside a styled dialog: the view's `Window` role reads
+    #: correctly at every Polish and StyleChange the filter sees, and is the
+    #: title bar's color once everything settles, so the popup opened painted
+    #: like the title bar. A combo popup is where this shows up because
+    #: `QStyleSheetStyle` treats `QComboBox QAbstractItemView` as a styled
+    #: sub-control and therefore always assigns it a palette, whether or not
+    #: the app wrote a rule for one.
+    #:
+    #: `PaletteChange` is the event that assignment raises, which makes it the
+    #: one trigger guaranteed to arrive *after* any palette is set, by anyone.
+    #: It cannot loop: `_apply_body_palette()` returns without writing when the
+    #: colors are already right, so this filter's own `setPalette` re-enters it
+    #: exactly once and stops. That early return is load-bearing — remove it
+    #: and this becomes infinite recursion.
+    _TRIGGERS = frozenset(
+        {QEvent.Type.Polish, QEvent.Type.StyleChange, QEvent.Type.PaletteChange}
+    )
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt)
         if event.type() in self._TRIGGERS and isinstance(obj, QWidget):

@@ -156,6 +156,11 @@ foreground — white, typically — and vanishes against the body. `Base`,
 `Highlight` and every other role are untouched and can still be read from the
 palette directly. See gotcha 3.
 
+Both accessors return a **copy**, so mutating what they hand back (`.setAlpha()`,
+say) is safe. It was not always: they used to return the captured color itself,
+and one app's `muted = body_text_color(); muted.setAlpha(180)` rewrote the color
+the library gives every widget, washing out the whole application's text.
+
 That is the whole integration: three calls, no per-window work, and nothing
 about a window's own layout or stylesheet changes.
 
@@ -176,10 +181,31 @@ the application palette however it is parented.
 widgets** wearing the title bar color. With the event filter `install()`
 puts on the application: **0**.
 
-The filter acts on `QEvent.Polish` **and** `QEvent.StyleChange`. Polish alone
-is one pass per widget and misses the subtree beneath a later-styled ancestor
-(a splitter styled after both its panes have been polished). There is no loop
-between the two: `setPalette` raises `PaletteChange`, which is not a trigger.
+The filter acts on `QEvent.Polish`, `QEvent.StyleChange` **and**
+`QEvent.PaletteChange`. Polish alone is one pass per widget and misses the
+subtree beneath a later-styled ancestor (a splitter styled after both its panes
+have been polished); StyleChange is what that repolish arrives as.
+
+`PaletteChange` is there because neither of the other two is late enough.
+**An application event filter runs before the receiver handles the event**, so
+on Polish the order is: the filter corrects the palette, and *then*
+`QWidget::event()` reaches `QStyleSheetStyle::polish()`, which re-derives one
+from the application palette and assigns it — overwriting the correction made
+moments earlier. `PaletteChange` is the event that assignment raises, which
+makes it the one trigger guaranteed to arrive after any palette is set, by
+anyone.
+
+The symptom that found it: **a `QComboBox` dropdown painted in the title bar's
+color.** Measured in a styled dialog — the popup view's `Window` role read
+correctly at every Polish and StyleChange the filter saw, and was the title
+bar's color once everything settled. A combo popup is where this surfaces
+because `QStyleSheetStyle` treats `QComboBox QAbstractItemView` as a styled
+sub-control and always assigns it a palette, whether or not the app wrote a
+rule for one.
+
+It cannot loop: `_apply_body_palette()` returns without writing when the colors
+are already right, so the filter's own `setPalette` re-enters it and stops.
+Measured re-entry depth: 3, bounded. That early return is load-bearing.
 
 **The symptom to recognise:** a widget wearing the title bar color *only while
 the window has focus*. Only the `Active` group is repurposed, so anything
@@ -289,3 +315,5 @@ along the bottom are the theme's color; nothing *inside* the window is.
 | A whole window is colored like the title bar | The same leak, on a window. `install()` puts an application-wide event filter on for exactly this; check it ran. |
 | A derived color (splitter, handle, hover) comes out tinted with the title bar | Something still reads `QApplication.palette()` for `Window`. Use `body_window_color()`. |
 | Muted/derived text is white and unreadable on the body | Something reads `QApplication.palette()` for `WindowText`. Use `body_text_color()`. |
+| A `QComboBox` dropdown, menu or other popup is painted like the title bar | A late palette assignment the filter did not catch. `PaletteChange` is a trigger for exactly this — check it is still in `_TRIGGERS`. |
+| All the app's text is faintly washed out | Something mutated a color the accessors returned. They hand back copies now; if you add an accessor, copy in it too. |
