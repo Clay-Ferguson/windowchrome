@@ -169,18 +169,24 @@ def menu_style() -> str:
 This is what insets the menu bar inside the border. Do not write the
 `QMenuBar { margin: ... }` rule yourself — see gotcha 2.
 
-### 5. `body_window_color()` — replace every palette read of `Window`
+### 5. `body_window_color()` / `body_text_color()` — replace every palette read of `Window` and `WindowText`
 
-Anywhere the app reads `QApplication.palette()` for `Window` or `WindowText`
-to derive a body color, use `windowchrome.body_window_color()` instead:
+Anywhere the app reads `QApplication.palette()` for `Window` or `WindowText` to
+derive a body color, use the library's accessor instead:
 
 ```python
 - window = QApplication.palette().color(QPalette.ColorRole.Window)
 + window = windowchrome.body_window_color()
+
+- text = QApplication.palette().color(QPalette.ColorRole.WindowText)
++ text = windowchrome.body_text_color()
 ```
 
-`Base`, `Highlight` and the other roles are untouched and can still be read
-from the palette directly. See gotcha 3 for what happens otherwise.
+Both matter, and `WindowText` is the easier one to miss: a muted or
+alpha-blended body text color derived from it comes out as the title bar's
+foreground — white, typically — and vanishes against the body. `Base`,
+`Highlight` and every other role are untouched and can still be read from the
+palette directly. See gotcha 3.
 
 ## 5. The gotchas
 
@@ -224,11 +230,13 @@ background has to be restated in `menu_bar_style()`.
 
 ### 3. Never derive a body color from `QApplication.palette()`
 
-The `Window` role carries the *title bar's* color once `install()` has run, so
-a derived color comes out tinted — and, where it lightens or darkens what it
-read, wrong twice over. The host app's splitter handle did exactly this: it
-read the title bar blue and lightened it, painting the handle a *brighter* blue
-than the bar. `body_window_color()` is the fix and the rule.
+The `Window` and `WindowText` roles carry the *title bar's* colors once
+`install()` has run, so a derived color comes out tinted — and, where it
+lightens or darkens what it read, wrong twice over. One host app's splitter
+handle did exactly this: it read the title bar blue and lightened it, painting
+the handle a *brighter* blue than the bar. Another computed its muted help text
+from `WindowText` and would have drawn it in the title bar's white.
+`body_window_color()` and `body_text_color()` are the fix and the rule.
 
 ### 4. One rule covers dialogs too
 
@@ -253,6 +261,21 @@ grays are compiled in and unreachable from application code.
 `(Active, Window)`, `(Active, WindowText)`, `(Disabled, WindowText)` — re-read
 on every repaint rather than cached at construction. Those three roles are
 what this library repurposes, and why the body palette has to be handed back.
+
+### 6. `bordered_body()` keeps a stylesheet the window already has — but only one set before it
+
+The call puts its three border rules in *front* of whatever the window's
+stylesheet already holds, so an application whose window styles itself keeps
+that styling and the host's rules still win any tie of equal specificity. What
+it cannot survive is the reverse order: `setStyleSheet()` replaces rather than
+appends, so a window that sets its own sheet *after* `bordered_body()` throws
+the border away with it. Call `bordered_body()` last.
+
+The related trap is `setObjectName()`. `bordered_body()` names the widget you
+pass it `windowFrame`, so a window that relies on an object name of its own —
+for a `QWidget#myWindow[state="..."]` rule, say — must not be passed in
+directly: give the content its own widget inside the returned body and put the
+name on that.
 
 ## 6. How to verify an integration
 
@@ -340,5 +363,7 @@ window edge.
 | Border missing on one dialog | Same: that dialog never called `bordered_body()`, or built into the widget it passed in rather than the one returned. |
 | A derived color (splitter, handle, hover) comes out tinted with the title bar | Something still reads `QApplication.palette()` for `Window`. Use `body_window_color()`. |
 | Menu bar flush to the window edge | `menu_bar_style()` not concatenated into the menu stylesheet. |
+| The window's own stylesheet stopped working after integrating | The window called `setStyleSheet()` *after* `bordered_body()`, replacing the border rules — or it relied on an object name that `bordered_body()` overwrote with `windowFrame`. See gotcha 6. |
+| Muted/derived text is white and unreadable on the body | Something reads `QApplication.palette()` for `WindowText`. Use `body_text_color()`. |
 | Menu bar is suddenly ~3x taller | Expected and load-bearing: `QMenuBar` applies horizontal margins to its height. That is what insets it vertically. |
 | A colored line between the menu bar and the content | The main window's `bordered_body()` was not given `top=0`. |

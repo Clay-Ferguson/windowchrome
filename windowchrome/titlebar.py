@@ -146,6 +146,27 @@ def body_window_color() -> QColor:
     )
 
 
+def body_text_color() -> QColor:
+    """The text color the window *body* is painted with.
+
+    The counterpart to `body_window_color()`, and it exists for the same
+    reason: `WindowText` is one of the three roles the title bar takes, so
+    `QApplication.palette()` hands back the title bar's foreground once
+    `install()` has run — white, typically — and anything deriving a body text
+    color from it comes out invisible against the body's own surface. Reach for
+    this instead wherever a muted or alpha-blended version of the window's text
+    color is being computed.
+
+    Falls through to the application palette when the title bar was left alone,
+    which is the same color it would have read anyway.
+    """
+    body = _BODY_ROLES.get(QPalette.ColorGroup.Active, {})
+    return body.get(
+        QPalette.ColorRole.WindowText,
+        QApplication.palette().color(QPalette.ColorRole.WindowText),
+    )
+
+
 def _apply_body_palette(widget: QWidget) -> None:
     """Give `widget` back the surface and text colors the title bar took.
 

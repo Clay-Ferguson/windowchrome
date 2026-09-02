@@ -97,6 +97,15 @@ def bordered_body(frame: QWidget, top: int | None = None) -> QWidget:
     needs the rule on itself regardless, since the menu bar's margin exposes
     the window's own background rather than the frame's.
 
+    A stylesheet the window already carries is **kept**, with the border rules
+    put in front of it rather than over the top of it: an application whose
+    window styles itself — one that paints its own background to report state,
+    say — would otherwise lose that styling to this call, silently and at
+    construction time. In front, so the host's rules come last and win any tie
+    of equal specificity. The corollary is an ordering rule: call this *after*
+    the window has set its own stylesheet, since a later `setStyleSheet()`
+    replaces rather than appends and would take the border with it.
+
     At a border width of 0 this is the layout it replaced, with one extra
     widget in it.
     """
@@ -105,7 +114,8 @@ def bordered_body(frame: QWidget, top: int | None = None) -> QWidget:
         top = width
 
     frame.setObjectName(FRAME_OBJECT_NAME)
-    frame.window().setStyleSheet(window_border_style())
+    window = frame.window()
+    window.setStyleSheet(window_border_style() + window.styleSheet())
 
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(width, top, width, width)

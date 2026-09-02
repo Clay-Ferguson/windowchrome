@@ -7,6 +7,7 @@ moments:
     windowchrome.install(app)          # AFTER QApplication, AFTER palette tuning
     windowchrome.bordered_body(frame)  # per top-level window; returns the body
     windowchrome.body_window_color()   # for any derived body color
+    windowchrome.body_text_color()     # ... and any derived body text color
     windowchrome.menu_bar_style()      # concatenate into the host's menu sheet
     windowchrome.ChromeTheme(...)      # colors, border width, decoration plugin
 
@@ -24,7 +25,13 @@ from .border import (
     window_border_style,
 )
 from .theme import DEFAULT_THEME, ChromeTheme, theme
-from .titlebar import DECORATION_ENV, body_window_color, configure, install
+from .titlebar import (
+    DECORATION_ENV,
+    body_text_color,
+    body_window_color,
+    configure,
+    install,
+)
 
 __all__ = [
     "BODY_OBJECT_NAME",
@@ -32,6 +39,7 @@ __all__ = [
     "DEFAULT_THEME",
     "FRAME_OBJECT_NAME",
     "ChromeTheme",
+    "body_text_color",
     "body_window_color",
     "bordered_body",
     "configure",
