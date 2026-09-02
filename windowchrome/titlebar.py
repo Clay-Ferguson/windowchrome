@@ -70,10 +70,8 @@ def install(app: QApplication) -> None:
     It reads `Window` and `WindowText` — the app's own surface and text roles,
     not roles of its own. So coloring the bar means repurposing them
     application-wide, and `_apply_body_palette()` is what hands them back to
-    every window that is not the title bar. A window that forgets
-    `bordered_body()` comes out wearing the title bar's colors, which is loud
-    but not broken; a `QMessageBox` is typically left that way, being transient
-    and few.
+    every widget as it is polished. A widget the filter somehow misses comes
+    out wearing the title bar's colors, which is loud but not broken.
 
     Call this *after* any palette tuning the application does of its own: the
     body colors are captured at this moment, and a palette changed afterwards

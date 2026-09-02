@@ -18,7 +18,6 @@ class ChromeTheme:
     title_bg: str = "#1e3a5f"
     title_fg: str = "#ffffff"
     title_fg_inactive: str = "#8fa1b8"
-    border_width: int = 4
     decoration: str = "bradient"
 
 

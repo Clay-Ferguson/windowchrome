@@ -1,21 +1,21 @@
 # windowchrome
 
-A colored title bar and a colored window border for PyQt6 applications on
-Linux. Written for an AI agent integrating it into an existing app: read §4
-(the checklist) and §5 (the gotchas) before changing anything, and §6 to check
-that what you changed actually paints.
+A colored title bar for PyQt6 applications on Linux. Written for an AI agent
+integrating it into an existing app: read §4 (the checklist) and §5 (the
+gotchas) before changing anything, and §6 to check that what you changed
+actually paints.
 
 ---
 
 ## 1. What it does, and what it cannot
 
-**Does:** paints the window's title bar in a color of your choosing, and paints
-a border of your chosen width just inside the window, so a window reads as one
-framed object rather than as a gray box with a colored strip on top.
+**Does:** paints the window's title bar — and, with it, the thin frame the
+decoration draws down the sides and along the bottom — in a color of your
+choosing, so a window reads as yours rather than as a gray box.
 
-**Cannot:** change the height of the title bar, or the thickness of the
-decoration's own border. Do not spend a session looking for the knob — there
-isn't one. On Wayland the title bar is drawn by a Qt decoration plugin, and
+**Cannot:** change the height of the title bar, or the thickness of that frame.
+Do not spend a session looking for the knob — there isn't one. On Wayland the
+title bar is drawn by a Qt decoration plugin, and
 `QWaylandBradientDecoration::margins()` disassembles to:
 
 ```
@@ -34,22 +34,25 @@ no font, palette or environment input. Measured heights confirm it:
 | `adwaita` | 49px (incl. 11px shadow) | 49 | 49 |
 | `bradient` | 30px | 30 | 30 |
 
-**That is why this library paints its own border inside the window.** The 3px
-the decoration draws cannot be widened, so `bordered_body()` paints
-`border_width` more of the same color immediately inside it, flush against it,
-and the two read as one thicker frame.
+3px on the sides and bottom is what you get, and it is the right amount.
+
+**This library used to paint a thicker border of its own, just inside the
+window, to work around that. It was removed deliberately — do not add it
+back.** It was `bordered_body()`, and it cost every consumer a wrapper widget
+per window plus two ordering rules (it overwrote the window's `objectName` and
+its stylesheet); it made one app restructure its status display around it; and
+on Wayland the extra band rendered at the wrong thickness while the window was
+unfocused. The thin frame the decoration draws is what the design wants.
 
 ## 2. Requirements and platform split
 
 - PyQt6 (≥ 6.6). No other dependency.
-- **The border works everywhere.** It is ordinary layout and an ordinary
-  stylesheet.
-- **The title bar color is Wayland-only.** It depends on Qt drawing the
+- **Wayland only, in effect.** The title bar is colorable because Qt draws the
   decoration inside the application process, which happens because GNOME
   implements no server-side decorations for Wayland clients. Under X11 or any
   other platform the window manager draws the bar out of process and nothing
-  here can reach it: `install()` returns without doing anything, and
-  `bordered_body()` still paints its border.
+  here can reach it: `install()` returns without doing anything, and the app
+  looks exactly as it would have without this library.
 
 ## 3. Installation
 
@@ -99,7 +102,7 @@ with the source above.
 import windowchrome
 from windowchrome import ChromeTheme
 
-APP_THEME = ChromeTheme(title_bg="#1369da", border_width=4)
+APP_THEME = ChromeTheme(title_bg="#1369da")
 
 windowchrome.configure(APP_THEME)   # <- before the next line, always
 app = QApplication(sys.argv)
@@ -129,47 +132,7 @@ hand back a stale color.
 It also warns (a `RuntimeWarning`) if `QT_WAYLAND_DECORATION` does not match
 the theme's `decoration` — i.e. if step 1 was skipped or ran too late.
 
-### 3. `bordered_body()` — in every top-level window
-
-Every `QMainWindow`, every `QDialog`. **Build into the widget it returns, not
-into the one you passed it.**
-
-```python
-# a dialog
-class SettingsDialog(QDialog):
-    def __init__(self, parent):
-        super().__init__(parent)
-        layout = QVBoxLayout(windowchrome.bordered_body(self))
-        ...
-
-# a main window: the menu bar above carries its own inset, so top=0
-frame = QWidget()
-self.setCentralWidget(frame)
-central = windowchrome.bordered_body(frame, top=0)
-```
-
-`top=0` only where a menu bar sits above the body. Give both the inset and you
-get a colored line *between* the menu bar and the content instead of a border
-around them.
-
-A window that skips this comes out wearing the title bar's colors over its
-whole surface — loud, but not broken. `QMessageBox` is usually left that way
-deliberately: it is transient, and there is no layout of yours to inset.
-
-### 4. `menu_bar_style()` — into any `QMenuBar` stylesheet
-
-```python
-def menu_style() -> str:
-    return f"""
-        QMenuBar::item {{ padding: 8px 16px; background: transparent; }}
-        ...
-    """ + windowchrome.menu_bar_style()
-```
-
-This is what insets the menu bar inside the border. Do not write the
-`QMenuBar { margin: ... }` rule yourself — see gotcha 2.
-
-### 5. `body_window_color()` / `body_text_color()` — replace every palette read of `Window` and `WindowText`
+### 3. `body_window_color()` / `body_text_color()` — replace every palette read of `Window` and `WindowText`
 
 Anywhere the app reads `QApplication.palette()` for `Window` or `WindowText` to
 derive a body color, use the library's accessor instead:
@@ -187,6 +150,9 @@ alpha-blended body text color derived from it comes out as the title bar's
 foreground — white, typically — and vanishes against the body. `Base`,
 `Highlight` and every other role are untouched and can still be read from the
 palette directly. See gotcha 3.
+
+That is the whole integration: three calls, no per-window work, and nothing
+about a window's own layout or stylesheet changes.
 
 ## 5. The gotchas
 
@@ -214,21 +180,7 @@ between the two: `setPalette` raises `PaletteChange`, which is not a trigger.
 the window has focus*. Only the `Active` group is repurposed, so anything
 leaking reverts to the theme's gray the moment the window is defocused.
 
-### 2. `QMenuBar` ignores vertical margins and applies horizontal ones to its height
-
-Measured in isolation: a 20px horizontal margin takes a 23px bar to 63px;
-`margin-top` or `margin-bottom` alone changes nothing at all. That quirk is
-*load-bearing* — it is what insets the bar on all four sides. So
-`menu_bar_style()` sets only the horizontal pair, and the vertical properties
-would be decoration on a rule Qt discards.
-
-Note also that `QMainWindow` lays the bar out itself, so the margin never moves
-the bar's geometry, only what it paints inside it: the color showing through is
-the **window's** background, not the bar's. That is why
-`window_border_style()` carries a `QMainWindow` rule, and why the bar's own
-background has to be restated in `menu_bar_style()`.
-
-### 3. Never derive a body color from `QApplication.palette()`
+### 2. Never derive a body color from `QApplication.palette()`
 
 The `Window` and `WindowText` roles carry the *title bar's* colors once
 `install()` has run, so a derived color comes out tinted — and, where it
@@ -238,13 +190,7 @@ the handle a *brighter* blue than the bar. Another computed its muted help text
 from `WindowText` and would have drawn it in the title bar's white.
 `body_window_color()` and `body_text_color()` are the fix and the rule.
 
-### 4. One rule covers dialogs too
-
-`QWidget#windowFrame` matches a `QDialog` as well as a plain `QWidget` — Qt
-type selectors match subclasses, unlike CSS. That is why a single
-`window_border_style()` covers the main window and every dialog.
-
-### 5. The decoration plugin choice is silent when wrong
+### 3. The decoration plugin choice is silent when wrong
 
 Qt ships exactly two decoration plugins and defaults to `adwaita`:
 
@@ -261,21 +207,6 @@ grays are compiled in and unreachable from application code.
 `(Active, Window)`, `(Active, WindowText)`, `(Disabled, WindowText)` — re-read
 on every repaint rather than cached at construction. Those three roles are
 what this library repurposes, and why the body palette has to be handed back.
-
-### 6. `bordered_body()` keeps a stylesheet the window already has — but only one set before it
-
-The call puts its three border rules in *front* of whatever the window's
-stylesheet already holds, so an application whose window styles itself keeps
-that styling and the host's rules still win any tie of equal specificity. What
-it cannot survive is the reverse order: `setStyleSheet()` replaces rather than
-appends, so a window that sets its own sheet *after* `bordered_body()` throws
-the border away with it. Call `bordered_body()` last.
-
-The related trap is `setObjectName()`. `bordered_body()` names the widget you
-pass it `windowFrame`, so a window that relies on an object name of its own —
-for a `QWidget#myWindow[state="..."]` rule, say — must not be passed in
-directly: give the content its own widget inside the returned body and put the
-name on that.
 
 ## 6. How to verify an integration
 
@@ -310,14 +241,15 @@ leaked = [w for w in app.allWidgets()
 assert leaked == []
 ```
 
-**The border actually paints.** `grab()` renders under
-`QT_QPA_PLATFORM=offscreen`, so border pixels can be sampled directly without a
-display:
+**The colors reached the palette.** There is no way to sample the title bar's
+own pixels from inside the process — the decoration is drawn outside the
+widget tree, so `grab()` never sees it. What can be checked is the palette the
+decoration reads, and that the body did not go with it:
 
 ```python
-import os, sys
+import sys
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QPalette
 import windowchrome
 from yourapp.style import APP_THEME, tune_palette
 
@@ -326,44 +258,29 @@ app = QApplication(sys.argv)
 tune_palette(app)
 windowchrome.install(app)
 
-from yourapp.window import MainWindow
-w = MainWindow(); w.resize(1000, 640); w.show()
-
-def report():
-    N = APP_THEME.border_width
-    img = w.grab().toImage(); h = img.height()
-    print("expect border", APP_THEME.title_bg,
-          "| body", windowchrome.body_window_color().name())
-    print(f"left={img.pixelColor(N // 2, h - N - 20).name()} "
-          f"right={img.pixelColor(img.width() - 1 - N // 2, h - N - 20).name()} "
-          f"bottom={img.pixelColor(img.width() // 2, h - 1 - N // 2).name()} "
-          f"| inside={img.pixelColor(N + 3, h - N - 20).name()}")
-    app.quit()
-
-QTimer.singleShot(1200, report)
-app.exec()
+p = app.palette()
+print("title bar reads:",
+      p.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Window).name(),
+      p.color(QPalette.ColorGroup.Active, QPalette.ColorRole.WindowText).name())
+print("body keeps:     ",
+      windowchrome.body_window_color().name(),
+      windowchrome.body_text_color().name())
 ```
 
-The three border samples must equal `title_bg` and `inside` must equal the body
-color. Run the same over every dialog: a dialog that skipped step 3 shows the
-body color where the border should be.
+The first line must be the theme's `title_bg`/`title_fg`; the second must be
+the colors the app had before `install()` ran. (Both come back identical off
+Wayland, where `install()` is a no-op — run this under a real session.)
 
-**By eye:** run the app. Colored title bar, a border of `border_width` on all
-four sides, and a menu bar inset *within* that border rather than flush to the
-window edge.
+**By eye:** run the app. The title bar and the thin frame down the sides and
+along the bottom are the theme's color; nothing *inside* the window is.
 
 ## 7. Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |
-| Gray title bar, border fine | `configure()` ran after `QApplication`, or `decoration` names a plugin Qt does not ship (it falls back to `adwaita` silently). Check `/proc/self/maps`. |
-| Gray title bar, no warning, not Wayland | Expected. The title bar is out-of-process under X11; only the border is yours. Check `app.platformName()`. |
+| Gray title bar | `configure()` ran after `QApplication`, or `decoration` names a plugin Qt does not ship (it falls back to `adwaita` silently). Check `/proc/self/maps`. |
+| Gray title bar, no warning, not Wayland | Expected. The title bar is drawn out-of-process under X11 and nothing here can reach it. Check `app.platformName()`. |
 | A widget is colored like the title bar, but **only when focused** | A palette leak: `install()` was not called, or was called before the app's own palette tuning. Only the `Active` group is repurposed, which is why defocusing reverts it. |
-| A whole window is colored like the title bar | That window never called `bordered_body()`. |
-| Border missing on one dialog | Same: that dialog never called `bordered_body()`, or built into the widget it passed in rather than the one returned. |
+| A whole window is colored like the title bar | The same leak, on a window. `install()` puts an application-wide event filter on for exactly this; check it ran. |
 | A derived color (splitter, handle, hover) comes out tinted with the title bar | Something still reads `QApplication.palette()` for `Window`. Use `body_window_color()`. |
-| Menu bar flush to the window edge | `menu_bar_style()` not concatenated into the menu stylesheet. |
-| The window's own stylesheet stopped working after integrating | The window called `setStyleSheet()` *after* `bordered_body()`, replacing the border rules — or it relied on an object name that `bordered_body()` overwrote with `windowFrame`. See gotcha 6. |
 | Muted/derived text is white and unreadable on the body | Something reads `QApplication.palette()` for `WindowText`. Use `body_text_color()`. |
-| Menu bar is suddenly ~3x taller | Expected and load-bearing: `QMenuBar` applies horizontal margins to its height. That is what insets it vertically. |
-| A colored line between the menu bar and the content | The main window's `bordered_body()` was not given `top=0`. |
