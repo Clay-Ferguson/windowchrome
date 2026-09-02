@@ -211,7 +211,30 @@ Measured re-entry depth: 3, bounded. That early return is load-bearing.
 the window has focus*. Only the `Active` group is repurposed, so anything
 leaking reverts to the theme's gray the moment the window is defocused.
 
-### 2. Never derive a body color from `QApplication.palette()`
+### 2. Some widgets paint from the application palette, not their own
+
+The event filter above can only reach widgets that resolve a color *from their
+own palette*. An **unstyled** `QComboBox` popup does not: it paints its
+background from `QApplication.palette()` at paint time, so the drop-down opens
+in the title bar's color no matter what the filter did.
+
+Measured, and worth knowing how it was pinned down: with every widget in the
+popup reading `Window = <body color>`, the popup still rendered the title bar's
+blue — and changing *only* the application palette, with the filter removed so
+no widget palette moved, took the popup with it. That is what proves the paint
+follows the application palette rather than the widget's.
+
+A stylesheet breaks the tie. Any stylesheet on the combo or its view switches
+it to `QStyleSheetStyle`, which resolves from the widget palette instead —
+which is why this appears in one app and not another: **an app that merely pads
+its combo has already fixed this by accident.** `install()`'s filter writes the
+rule for popups that have no stylesheet of their own, and leaves a view the
+host has already styled alone.
+
+If you meet the same symptom on some other widget, this is the shape of it:
+check whether changing only the application palette moves it.
+
+### 3. Never derive a body color from `QApplication.palette()`
 
 The `Window` and `WindowText` roles carry the *title bar's* colors once
 `install()` has run, so a derived color comes out tinted — and, where it
@@ -221,7 +244,7 @@ the handle a *brighter* blue than the bar. Another computed its muted help text
 from `WindowText` and would have drawn it in the title bar's white.
 `body_window_color()` and `body_text_color()` are the fix and the rule.
 
-### 3. The decoration plugin choice is silent when wrong
+### 4. The decoration plugin choice is silent when wrong
 
 Qt ships exactly two decoration plugins and defaults to `adwaita`:
 
@@ -315,5 +338,6 @@ along the bottom are the theme's color; nothing *inside* the window is.
 | A whole window is colored like the title bar | The same leak, on a window. `install()` puts an application-wide event filter on for exactly this; check it ran. |
 | A derived color (splitter, handle, hover) comes out tinted with the title bar | Something still reads `QApplication.palette()` for `Window`. Use `body_window_color()`. |
 | Muted/derived text is white and unreadable on the body | Something reads `QApplication.palette()` for `WindowText`. Use `body_text_color()`. |
-| A `QComboBox` dropdown, menu or other popup is painted like the title bar | A late palette assignment the filter did not catch. `PaletteChange` is a trigger for exactly this — check it is still in `_TRIGGERS`. |
+| A `QComboBox` dropdown, menu or other popup is painted like the title bar | Two different causes. A late palette assignment the filter did not catch — `PaletteChange` is a trigger for exactly this, check it is still in `_TRIGGERS`. Or a widget painting from the application palette rather than its own, which no palette fix can reach: see gotcha 2. |
+| A combo dropdown is right in one app and blue in another | The one that works styles its combo, which quietly switches it to `QStyleSheetStyle`. See gotcha 2. |
 | All the app's text is faintly washed out | Something mutated a color the accessors returned. They hand back copies now; if you add an accessor, copy in it too. |

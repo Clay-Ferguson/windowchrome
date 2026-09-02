@@ -11,9 +11,9 @@ from __future__ import annotations
 import os
 import warnings
 
-from PyQt6.QtCore import QEvent, QObject
+from PyQt6.QtCore import QEvent, QObject, Qt
 from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QAbstractItemView, QApplication, QWidget
 
 from .theme import DEFAULT_THEME, ChromeTheme, set_theme, theme
 
@@ -204,6 +204,49 @@ def _apply_body_palette(widget: QWidget) -> None:
     widget.setPalette(palette)
 
 
+# Marks the rule below as ours, so it is written once and never doubled up.
+_POPUP_MARKER = "/* windowchrome */"
+
+
+def _fix_popup_background(widget: QWidget) -> None:
+    """Repaint a drop-down list that ignores its own palette.
+
+    An **unstyled** `QComboBox` popup paints its background from
+    `QApplication.palette()` at paint time, not from the palette of any widget
+    in it — so the event filter cannot reach it, and the drop-down opens in the
+    title bar's color. Measured: with every widget in the popup reading
+    `Window = <body color>`, the popup still rendered the title bar's blue, and
+    changing *only* the application palette (filter removed, no widget palette
+    touched) moved it — proof that the paint follows the application palette.
+
+    A stylesheet is what breaks the tie: any stylesheet on the combo or its
+    view switches it to `QStyleSheetStyle`, which resolves from the widget
+    palette instead. That is the whole reason this bug shows up in one app and
+    not another — an app that pads its combo has already fixed it by accident.
+
+    So the rule is written here, on the view, for popups that have no
+    stylesheet of their own. A view the host has already styled is left alone:
+    it is already resolving correctly, and overwriting the host's rule would
+    be worse than the bug.
+
+    Restricted to a view inside a popup window, which is what a drop-down is;
+    an ordinary list or tree in a window paints from its own palette and needs
+    nothing.
+    """
+    if not _BODY_ROLES or not isinstance(widget, QAbstractItemView):
+        return
+    window = widget.window()
+    if window is widget or window.windowType() != Qt.WindowType.Popup:
+        return
+
+    sheet = widget.styleSheet()
+    if sheet and _POPUP_MARKER not in sheet:
+        return  # the host styled it; it already resolves from the palette
+    rule = f"{_POPUP_MARKER} QAbstractItemView {{ background: {body_window_color().name()}; }}"
+    if sheet != rule:
+        widget.setStyleSheet(rule)
+
+
 class _BodyPaletteFilter(QObject):
     """Restores the body colors on every widget, as it is polished.
 
@@ -262,6 +305,7 @@ class _BodyPaletteFilter(QObject):
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt)
         if event.type() in self._TRIGGERS and isinstance(obj, QWidget):
             _apply_body_palette(obj)
+            _fix_popup_background(obj)
         return False
 
 
