@@ -53,11 +53,18 @@ and the two read as one thicker frame.
 
 ## 3. Installation
 
-No GitHub, no PyPI. `windowchrome` is consumed from a **sibling directory** of
-the project using it:
+`windowchrome` is **not published to PyPI**. Clone it from GitHub and consume
+it from a **sibling directory** of the project using it — the sibling
+relationship is what makes the `../windowchrome` path below resolve, so the
+directory has to be named this and has to sit beside the consumer:
+
+```bash
+cd ..                      # the directory holding your-app/
+git clone https://github.com/<your-account>/windowchrome.git
+```
 
 ```
-/mnt/projects/
+projects/
 ├── windowchrome/     <- this repo
 └── your-app/
 ```
@@ -74,10 +81,11 @@ dependencies = [
 windowchrome = { path = "../windowchrome", editable = true }
 ```
 
-`editable = true` is what makes side-by-side development work: an edit here is
-picked up by every consumer immediately, with no reinstall. If the sibling
-checkout is missing, `uv run` fails with an unresolved path dependency rather
-than with anything subtle.
+`editable = true` is what makes side-by-side development work: the clone is
+used in place, so there is nothing to build and an edit here is picked up by
+every consumer on its next run, with no reinstall. If the sibling checkout is
+missing, `uv run` fails with an unresolved path dependency rather than with
+anything subtle.
 
 A consumer that is itself not an installable package keeps its own
 `[tool.uv] package = false`; that governs the consumer and does not conflict
