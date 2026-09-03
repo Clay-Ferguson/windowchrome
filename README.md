@@ -5,10 +5,19 @@ which are the four PyQt6 apps available under the 'clay-ferguson' github reposit
 To use any of those four applications you'll need to have this project in a sibling 
 folder next to those folders 
 
-This package implements a colored title bar for PyQt6 applications on Linux. Written for an AI agent
-integrating it into an existing app: read §4 (the checklist) and §5 (the
-gotchas) before changing anything, and §6 to check that what you changed
-actually paints.
+This package does two unrelated things for a PyQt6 application on Linux:
+
+1. **A colored title bar** (§1–§6), so a window reads as yours rather than as
+   a gray box. Wayland only, in effect, and order-sensitive to set up.
+2. **A markdown viewer** (§5), so an app can show its own documentation —
+   whatever is in its `docs/` folder — inside itself, with working links and
+   images. No setup, no platform requirement, and no relationship to the title
+   bar beyond where it reads two colors from.
+
+Written for an AI agent integrating it into an existing app. For the title bar,
+read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7
+to check that what you changed actually paints. For the viewer, §5 is
+self-contained.
 
 ---
 
@@ -48,6 +57,12 @@ per window plus two ordering rules (it overwrote the window's `objectName` and
 its stylesheet); it made one app restructure its status display around it; and
 on Wayland the extra band rendered at the wrong thickness while the window was
 unfocused. The thin frame the decoration draws is what the design wants.
+
+**The markdown viewer does not** render HTML, apply CSS, restyle what Qt
+rendered (no theme-aware link color, no code-block background — see §5 for why
+that is a decision), fetch anything over the network, offer a Forward button or
+a find-in-page. It renders local markdown files, and it is deliberately not a
+browser.
 
 ## 2. Requirements and platform split
 
@@ -164,7 +179,191 @@ the library gives every widget, washing out the whole application's text.
 That is the whole integration: three calls, no per-window work, and nothing
 about a window's own layout or stylesheet changes.
 
-## 5. The gotchas
+## 5. The markdown viewer
+
+Independent of everything above: no `configure()`, no `install()`, no ordering,
+and it works off Wayland. Two names do the whole job.
+
+```python
+from windowchrome import show_markdown
+
+show_markdown(
+    docs_dir / "USER_GUIDE.md",
+    parent=main_window,
+    title="Sonar — User Guide",
+    button_factory=lambda text: action_button(text, uniform=True),
+)
+```
+
+and, from the host's main window `closeEvent`:
+
+```python
+from windowchrome import close_markdown_windows
+close_markdown_windows()
+```
+
+`show_markdown()` returns the dialog. `MarkdownView` is the widget on its own,
+for markdown shown somewhere that is not a dialog — which is why the rendering
+does not live inside `MarkdownDialog`.
+
+`title` names the document the window is opened on. Anything navigated to from
+there is named by its own first heading instead — a window that can follow a
+link cannot keep the title it opened with, or it ends up headed "Query Syntax"
+while showing the user guide.
+
+### What Qt gives you, and what it does not
+
+Qt renders markdown itself: `QTextBrowser.setMarkdown()` and
+`setSource(url, MarkdownResource)` handle headings, tables, fenced code,
+blockquotes, task lists, links and images. **No markdown package is a
+dependency and none should become one.** Measured on a real 632-line document:
+21268 characters, 30 headings, 12 tables, 27 fenced code blocks.
+
+Qt's own history is enough, too. `setSource` → navigate → `backward()` returned
+to the first document **and restored the scroll bar to the exact value it was
+left at** (2897). So there is no history stack in this library and no scroll
+bookkeeping: `backward()`, `isBackwardAvailable()` and the
+`backwardAvailable(bool)` signal are the whole of it, and the last drives the
+Back button's `setEnabled` directly.
+
+What Qt does not do is give headings anchor names, so a `[Contents](#contents)`
+link has nothing to scroll to, and it does not fit an image to the view. That
+is the entire gap, and both are closed without changing the document.
+
+### The rule everything else follows from: never modify the document
+
+**This view renders what Qt renders.** It does not restyle it. There is no
+theme-aware link color and no code-block background, and that is a decision
+rather than an omission.
+
+An earlier version had both, plus injected heading anchors, and the cost was
+out of all proportion. Each was a pass over the rendered document merging a
+format per fragment or per block — several hundred changes. Applied to a
+document Qt is laying out *incrementally*, which is what happens whenever the
+widget is already on screen when the content arrives, the layout stops part way
+through: every block past that point keeps a height of **zero**. On screen that
+is a run of paragraphs rendering as a band of blank space — text present,
+selectable and copyable, but invisible and occupying almost no height.
+Measured on the 632-line guide: 73 of its 302 paragraphs never laid out, and
+the document reported itself 5338px tall instead of 7480.
+
+Batching the changes into one `beginEditBlock()`/`endEditBlock()` did fix it.
+The better answer was to stop making them:
+
+- **Fragment links do not need anchors in the document.** `scroll_to_heading()`
+  reads the headings, matches the slug, asks the layout where that block sits,
+  and sets the scroll bar. Nothing is written. It works from `sourceChanged`
+  too, before Qt has laid out the rest, because asking for a block's rectangle
+  lays the document out as far as that block. It also deletes a failure mode
+  outright: injected anchors had to be re-applied after every `backward()`,
+  since that re-renders; found headings never need re-applying.
+- **The link color is Qt's.** For the record, it cannot be changed *except* by
+  modifying the document: the importer sets an explicit `ForegroundBrush` of
+  `#0000ff` on every link fragment, and `QPalette.Link` is ignored — verified
+  by pixel-sampling a render with the role set to red and to green, which
+  painted identical blue. A host that truly needs a different link color on a
+  dark background is asking for the pass that broke the layout; weigh it
+  against that.
+- **Code blocks are monospace, with no background band.** Cosmetic, and not
+  worth touching the document for.
+
+`MarkdownView` therefore implements exactly two things, and both are places Qt
+asks a subclass to fill in rather than places it has to be reached into:
+
+**1. `loadResource()` — image fitting.** Qt does not read image files itself:
+it calls `loadResource` during layout, **before the first paint**, and lays out
+whatever comes back at the size it comes back. So returning an already-scaled
+`QImage` is the whole of fitting one — no walking the document afterwards
+rewriting `QTextImageFormat` widths, no second layout pass, no flash of an
+oversized image. Measured with a 1153×935 screenshot in a 684px viewport:
+without it, horizontal scroll bar 477 and a 1161px document; with it, scroll
+bar **0** and a 682px document, on the first render.
+
+Two details that are not obvious. The base implementation returns the file's
+raw bytes as a **`QByteArray`**, not an image, so decoding them is not
+optional. And scaling is **down only** — a small inline icon is already the
+size it wants to be.
+
+The dialog pins its `minimumWidth` to the width it fitted images to. That is
+what makes "one render" true for the life of the window: measured, dragging
+narrower than the fitted width brings the overflow back (a 420px window put the
+scroll bar at 278), and the only cure would be dropping the image cache,
+re-rendering, and restoring the scroll position. Pinning the minimum means that
+path does not exist. Widening is free — an image stays its size rather than
+upscaling, which is right for a screenshot.
+
+**2. Link handling.** `setOpenLinks(False)` and an `anchorClicked` handler,
+because Qt's own is unsafe here:
+
+- **Nothing reaches `setSource` that has not been stat'd.** `setSource` does
+  not fail on a URL it cannot load: measured, an `https://` URL and a missing
+  local file each left the document at **1 character** and still pushed a
+  history entry, and `setOpenExternalLinks(True)` did not prevent it — that
+  flag is only consulted on the click path. A click on a target that does not
+  exist does nothing, which is a better outcome than a blank window.
+- **An in-page link scrolls; it never calls `setSource("#x")`.** With a source
+  already set, `#x` resolves *against it* and reloads: measured, 21268 → 23149
+  characters and the scroll bar did not move.
+
+Slugs are GitHub's rule over the *rendered* block text, `-1`/`-2` for repeats.
+Rendered, not source: the importer has already eaten the backticks, so
+`` ## `search.included` `` arrives as `search.included` and slugs to
+`searchincluded`, which is what GitHub produces for the same heading — so a
+link written against the file on GitHub resolves against the file in the
+widget. `heading_slugs()` is exported for exactly one reason: anything that
+*checks* a document's links must number repeats identically, and a checker with
+its own copy of the rule is one that will eventually disagree with the view.
+
+`test_the_document_is_never_modified` asserts `document().isModified()` is
+false after loading and navigating. That is the guard on all of the above: any
+styling pass that creeps back in has to modify the document, and would fail it.
+
+### Buttons, and why there is a factory
+
+The dialog owns no look beyond its layout. The four applications using this
+library each build a button differently — a colored free function, a stylesheet
+constant on a `QDialogButtonBox`, a method on the main window that wires the
+slot too, and a `QToolButton` — so there is no convention to standardise on
+here. `button_factory` is the narrowest seam all of them can satisfy, and it is
+typed `Callable[[str], QAbstractButton]` because of that last one.
+
+Without a factory the buttons are bare `QPushButton`s wearing the desktop
+theme, deliberately: an integration that forgets is one that looks wrong
+immediately rather than looking almost right forever.
+
+`.view` and `.button_row` are public for the styling a factory cannot reach —
+a host that widens its scroll bars everywhere calls `apply_scrollbars(dlg.view)`
+on what `show_markdown()` hands back.
+
+### The registry, and the two ways a dialog dies
+
+Windows are modeless and kept in a module-level dict keyed by the resolved
+path, so asking for a document twice raises the window already showing it.
+Eviction is the subtle part, and it is measured:
+
+- **A dismissed dialog must be evicted synchronously.** `close()`, `reject()`
+  and Escape all emit `finished` immediately, but deletion is a `deleteLater`
+  that lands on a later turn. Evicting only on `destroyed` leaves a dialog that
+  is on its way out still registered — so the next open "raises" it and hands
+  back a window that vanishes a moment later. Hence `finished`, with
+  `destroyed` kept as the backstop for a dialog torn down without being closed.
+- **Eviction compares identity, and never calls a method on the dialog.**
+  `destroyed` arrives a turn late: close A, open B for the same path, and A's
+  notification lands with B already registered. Without `_WINDOWS.get(key) is
+  dialog`, B is evicted and a third open stacks a duplicate. The check is a
+  Python wrapper comparison, which is also the only kind that is safe from a
+  `destroyed` handler — by then the C++ object is gone and touching it raises.
+- `close_markdown_windows()` iterates a **copy**, because each close mutates
+  the dict.
+
+**A parented modeless dialog does not hold the application open.** It has a
+transient parent, so it is not a "primary" window and `quitOnLastWindowClosed`
+still fires — measured, the app quit with a help window visible. But that
+window *is* still on screen for as long as that takes, so a host should still
+call `close_markdown_windows()` from its main window's `closeEvent`. An
+*unparented* window is a different story and would keep the process alive.
+
+## 6. The gotchas
 
 Each of these was measured. They are what stop a future integrator from
 "fixing" the design.
@@ -262,7 +461,7 @@ grays are compiled in and unreachable from application code.
 on every repaint rather than cached at construction. Those three roles are
 what this library repurposes, and why the body palette has to be handed back.
 
-## 6. How to verify an integration
+## 7. How to verify an integration
 
 None of this is unit-testable — it is pixels and a plugin choice — so check it
 directly.
@@ -328,7 +527,7 @@ Wayland, where `install()` is a no-op — run this under a real session.)
 **By eye:** run the app. The title bar and the thin frame down the sides and
 along the bottom are the theme's color; nothing *inside* the window is.
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |
@@ -341,3 +540,16 @@ along the bottom are the theme's color; nothing *inside* the window is.
 | A `QComboBox` dropdown, menu or other popup is painted like the title bar | Two different causes. A late palette assignment the filter did not catch — `PaletteChange` is a trigger for exactly this, check it is still in `_TRIGGERS`. Or a widget painting from the application palette rather than its own, which no palette fix can reach: see gotcha 2. |
 | A combo dropdown is right in one app and blue in another | The one that works styles its combo, which quietly switches it to `QStyleSheetStyle`. See gotcha 2. |
 | All the app's text is faintly washed out | Something mutated a color the accessors returned. They hand back copies now; if you add an accessor, copy in it too. |
+
+**The markdown viewer:**
+
+| Symptom | Cause |
+| --- | --- |
+| The help window is blank, or one character long | Something handed `setSource` a URL that is not an existing local file. It does not fail; it renders nothing and pushes a history entry. Stat first — see §5 rule 2. |
+| A Contents link does nothing | A heading was renamed, so its slug moved with it. `scroll_to_heading()` returns False when no heading matches. |
+| A band of blank space mid-document; the text is there if you select and copy it | Something modified the document, and an incremental layout stopped part way through. The view must never write to it — see §5. |
+| A wide screenshot scrolls sideways | `loadResource` was overridden without decoding the `QByteArray` the base class actually returns, or the window's `minimumWidth` was not pinned to the width images were fitted to. |
+| Links are blue and hard to read on a dark background | Qt's color, and it cannot be changed without modifying the document. See §5. |
+| Re-opening a document gives a window that vanishes | The registry is evicted only on `destroyed`. A dismissed dialog is still registered until its `deleteLater` runs — evict on `finished`. |
+| `RuntimeError: wrapped C/C++ object has been deleted` | Something called a method on a registered dialog after it was dismissed, or eviction compares with `==` rather than `is`. |
+| The app does not exit after its main window closes | Only possible with an *unparented* window: it becomes a primary window. Parent the dialog, and call `close_markdown_windows()` from `closeEvent`. |
