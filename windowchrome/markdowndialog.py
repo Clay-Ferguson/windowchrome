@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .markdownview import MarkdownView
+from .markdownview import DOCUMENT_MARGIN, MarkdownView
 
 # Wide enough for a document with tables in it; the old hand-built help
 # dialogs these replace were around 520 and wrapped every table row.
@@ -34,10 +34,13 @@ DEFAULT_WIDTH = 900
 DEFAULT_HEIGHT = 700
 
 # What the frame, the layout margins and a (possibly widened) scroll bar take
-# out of the window's width before the text starts. Images are fitted to what
-# is left. Generous rather than exact: fitting an image a little narrower than
-# it could be costs nothing, and one pixel too wide costs a scroll bar.
-CONTENT_INSET = 60
+# out of the window's width before the text starts, plus the view's own
+# margin on both sides. Images are fitted to what is left. Generous rather
+# than exact: fitting an image a little narrower than it could be costs
+# nothing, and one pixel too wide costs a scroll bar. The document margin is
+# named rather than folded into the number so that widening it cannot quietly
+# start overflowing images.
+CONTENT_INSET = 60 + 2 * DOCUMENT_MARGIN
 
 ButtonFactory = Callable[[str], QAbstractButton]
 

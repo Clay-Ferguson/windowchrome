@@ -47,6 +47,18 @@ MARKDOWN_SUFFIXES = frozenset({".md", ".markdown", ".txt"})
 # Everything but word characters, spaces and hyphens comes out of a slug.
 _SLUG_STRIP = re.compile(r"[^\w\- ]", re.UNICODE)
 
+# White space between the text and the edge of the view, on all four sides.
+# Qt's default is 4px, which puts the first character hard against the frame
+# and the longest line hard against the scroll bar — a document rendered with
+# no margin at all reads as broken rather than as plain.
+#
+# This is a property of the *document*, not a change *to* it: it is the root
+# frame's margin, set once before anything is loaded, so it costs no format
+# merges and does not trip the layout failure described in the module
+# docstring. Measured: it survives `setSource`, a `backward()` and
+# `set_markdown()` without being re-applied, and leaves `isModified()` false.
+DOCUMENT_MARGIN = 20
+
 
 def heading_slug(text: str) -> str:
     """GitHub's anchor slug for one heading, from its *rendered* text.
@@ -92,6 +104,7 @@ class MarkdownView(QTextBrowser):
         super().__init__(parent)
         self._image_width = image_width
         self._base_url = QUrl()
+        self.document().setDocumentMargin(DOCUMENT_MARGIN)
 
         # Qt's own link handling is what has to be off. `setSource` on an http
         # URL or a path that does not exist does not fail: it renders an empty
@@ -232,7 +245,10 @@ class MarkdownView(QTextBrowser):
         elif data is not None and hasattr(data, "toImage"):
             image = data.toImage()
 
-        width = self._image_width or max(self.viewport().width() - 1, 1)
+        # The margin is inside the viewport, so the room an image actually
+        # has is the viewport less both sides of it.
+        fallback = self.viewport().width() - 2 * int(self.document().documentMargin())
+        width = self._image_width or max(fallback - 1, 1)
         # Down only. A small inline icon is already the size it wants to be,
         # and upscaling one would only make it blurry.
         if image.isNull() or image.width() <= width:
