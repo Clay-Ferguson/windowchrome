@@ -1,7 +1,7 @@
 # Notes to AI Agents
 
 ## What this is
-This is a library that takes care of application window and dialog styling so that we can share it across all our Python projects. Two unrelated things live here: the colored title bar, and a markdown viewer for showing an app's own `docs/` inside itself.
+This is a library that takes care of application window and dialog styling so that we can share it across all our Python projects. Three unrelated things live here: the colored title bar, a markdown viewer for showing an app's own `docs/` inside itself, and the wide scroll bars the apps use everywhere.
 
 ## Modules
 
@@ -9,6 +9,9 @@ This is a library that takes care of application window and dialog styling so th
 - `titlebar.py` — `configure()` / `install()` and the body-color accessors. Order-sensitive and Wayland-only; README §4 and §6 are the contract.
 - `markdownview.py` — `MarkdownView`, a `QTextBrowser` that adds navigation and image fitting to what Qt already renders. Separate from the dialog on purpose: markdown is not always shown in one.
 - `markdowndialog.py` — `MarkdownDialog`, `show_markdown()` and `close_markdown_windows()`: a modeless window around a view, with a registry so a document opens once.
+- `scrollbars.py` — `scrollbar_style()` and `apply_scrollbars()`, the bars drawn at twice the desktop's own thickness. Self-contained: no setup, no platform requirement, nothing shared with the other two. README §9 is the contract.
+
+**`scrollbars.py` reads `QPalette.Base` straight from the application palette, and that is not the gotcha-3 mistake.** Gotcha 3 forbids deriving a *body* color from `QApplication.palette()` because `install()` repurposes `Window` and `WindowText` for the title bar. `Base` is untouched, so reading it here is correct and routing it through `body_window_color()` would be wrong. Don't "fix" it.
 
 **The view never modifies the document it is showing, and that is the constraint the design rests on.** It renders what Qt renders — no restyling, no injected anchors. Several hundred format changes to a document being laid out incrementally stops the layout part way through, and a whole section renders as a band of blank space with the text present but invisible. If you are tempted to add a theme-aware link color or a code-block background, that is the price; read README §5 first. `test_the_document_is_never_modified` is the guard.
 

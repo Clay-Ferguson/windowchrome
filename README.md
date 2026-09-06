@@ -2,12 +2,15 @@
 
 This project is a dependency that's required by Sonar, Start Menu, Postit, and Lingo which are the four PyQt6 apps available under the 'clay-ferguson' github repositories. To use any of those four applications you'll need to have this project in a sibling folder next to those folders
 
-This package does two unrelated things for a PyQt6 application on Linux:
+This package does three unrelated things for a PyQt6 application on Linux:
 
 1. **A colored title bar** (§1–§6), so a window reads as yours rather than as a gray box. Wayland only, in effect, and order-sensitive to set up.
 2. **A markdown viewer** (§5), so an app can show its own documentation — whatever is in its `docs/` folder — inside itself, with working links and images. No setup, no platform requirement, and no relationship to the title bar beyond where it reads two colors from.
+3. **Wide scroll bars** (§9), about twice the thickness the desktop draws, so they are easier to grab with the mouse. Per scroll area, opt-in, and self-contained.
 
-Written for an AI agent integrating it into an existing app. For the title bar, read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7 to check that what you changed actually paints. For the viewer, §5 is self-contained.
+Written for an AI agent integrating it into an existing app. For the title bar, read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7 to check that what you changed actually paints. For the viewer, §5 is self-contained, and so is §9 for the scroll bars.
+
+The numbering is historical: §9 was added after §7 and §8 were written, and is not renumbered into place because the four consuming apps cite these section numbers from their own `AGENTS.md`.
 
 ---
 
@@ -195,7 +198,7 @@ The dialog owns no look beyond its layout. The four applications using this libr
 
 Without a factory the buttons are bare `QPushButton`s wearing the desktop theme, deliberately: an integration that forgets is one that looks wrong immediately rather than looking almost right forever.
 
-`.view` and `.button_row` are public for the styling a factory cannot reach — a host that widens its scroll bars everywhere calls `apply_scrollbars(dlg.view)` on what `show_markdown()` hands back.
+`.view` and `.button_row` are public for the styling a factory cannot reach — a host that widens its scroll bars everywhere calls `apply_scrollbars(dlg.view)` (§9) on what `show_markdown()` hands back. The dialog does not call it itself: the wide bars are a host's decision, and an app that has not made it should not have them appear in its help window alone.
 
 ### The registry, and the two ways a dialog dies
 
@@ -337,3 +340,39 @@ The first line must be the theme's `title_bg`/`title_fg`; the second must be the
 | Re-opening a document gives a window that vanishes | The registry is evicted only on `destroyed`. A dismissed dialog is still registered until its `deleteLater` runs — evict on `finished`. |
 | `RuntimeError: wrapped C/C++ object has been deleted` | Something called a method on a registered dialog after it was dismissed, or eviction compares with `==` rather than `is`. |
 | The app does not exit after its main window closes | Only possible with an *unparented* window: it becomes a primary window. Parent the dialog, and call `close_markdown_windows()` from `closeEvent`. |
+
+---
+
+## 9. Wide scroll bars
+
+A desktop's own scroll bar is a few pixels wide and fiddly to hit with a mouse. `scrollbar_style()` returns a Qt stylesheet drawing one at `SCROLLBAR_SCALE` (2) times that, and `apply_scrollbars()` puts it where it goes:
+
+```python
+from windowchrome import apply_scrollbars
+
+apply_scrollbars(self.results)                       # a QAbstractScrollArea
+apply_scrollbars(self._text_edit, field_background)  # ... painted some other color
+```
+
+Nothing to call before or after the `QApplication`, no platform requirement, and no relationship to the title bar. It is opt-in per scroll area rather than an application-wide stylesheet, because an application-wide one would sever palette inheritance across every widget in the app (gotcha 1) to change two.
+
+Four things about it are deliberate, and each looks like something worth simplifying until you know why:
+
+- **The thickness is read, not assumed.** `QApplication.style().pixelMetric(PM_ScrollBarExtent)` is what the desktop would have drawn; the style doubles *that*, floored at `MIN_SCROLLBAR_EXTENT` (12) in case a style reports something implausibly small or nothing at all. A fixed pixel count would be double on the one theme it was measured against and wrong on the next.
+- **The steppers have to be described.** Styling a scroll bar at all opts it out of native drawing, so the groove, the handle *and* both stepper buttons become this stylesheet's problem. `add-line`/`sub-line` are explicitly collapsed to zero size: left undescribed they render as blank boxes at each end. Zero-sized steppers also give the handle the whole length of the bar, which is the point of the extra width.
+- **The contrast goes both ways.** The handle is `base.lighter(230)` on a dark pane and `base.darker(140)` on a light one, chosen by `base.lightness() < 128`, with hover a further step in the same direction. A single pinned gray suits exactly one of the two themes.
+- **The stylesheet goes on the two `QScrollBar` children, never on the scroll area.** The area keeps its native rendering and only the bars change.
+
+### The `base` argument
+
+`base` is the color the bar sits *in*; the groove is painted with it so the bar reads as part of the pane rather than as a stripe laid over it. It defaults to the palette's `Base`, which is what a pane normally is. A host that paints its field some other color — one *derived* from `Base`, say — passes that color instead, or the groove shows through as a visibly different shade against the field:
+
+```python
+field = QApplication.palette().color(QPalette.ColorRole.Base).lighter(130)
+edit.setStyleSheet(f"background-color: {field.name()};")
+apply_scrollbars(edit, field)
+```
+
+### Why this reads the palette directly
+
+This is the one place in the library that reads a color straight from `QApplication.palette()`, and gotcha 3 says not to. Gotcha 3 is about `Window` and `WindowText`, the two roles `install()` repurposes for the title bar — a body color derived from those has to come from `body_window_color()`/`body_text_color()` or it comes out tinted with the title bar. `Base` is not one of them and is never touched, so reading it here is correct, and routing it through the body accessors would be actively wrong.
