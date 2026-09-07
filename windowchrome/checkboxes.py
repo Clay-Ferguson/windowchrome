@@ -11,13 +11,23 @@ are fine, so nothing here touches them.
 Why this is a `QProxyStyle` and not a stylesheet, which is the one thing to
 know before changing it. The indicator is sized by the style, not by the
 font or the widget, so a check box cannot simply be made bigger from the
-outside. A stylesheet *can* set `::indicator`'s width and height — but
-styling that sub-control at all takes over its drawing, and the check mark
-goes with it: no stylesheet draws a tick without shipping an image, so the
-box comes out never looking ticked. That is exactly the trade `radio_style()`
-accepts, because a filled circle is drawable and a tick is not. Overriding
-the pixel metric instead keeps Qt's own rendering and changes only the
-rectangle it is asked to fill.
+outside. A stylesheet `QCheckBox::indicator { width: …; height: … }` does
+work — geometry is all it sets, so `QStyleSheetStyle` applies the size and
+still lets the native style paint the box and its tick.
+
+The trap is that it only works while the rule stays geometry. Add any
+*appearance* property — a `border`, a `background` — and Qt takes the
+drawing to be yours, stops delegating, and paints only what the rule names.
+No CSS property draws a check mark (Qt's answer is `image: url(tick.png)`,
+i.e. shipping images for every state), so the box renders empty and a
+checked box no longer looks checked. Measured: `width`/`height` alone keeps
+the tick; adding `border: 2px solid #444` loses it.
+
+That failure is silent and one word away, which is the reason for the proxy
+rather than the stylesheet: overriding the pixel metric changes the
+rectangle the native style is handed and never leaves the native drawing
+path at all. `radio_style()` goes the stylesheet route because a circle
+*is* drawable in CSS and a tick is not.
 
 Nothing here reads the palette at all, for the same reason: the native
 drawing already follows the theme.
