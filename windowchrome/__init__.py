@@ -24,6 +24,12 @@ grab with the mouse. Like the viewer: no setup, no platform requirement:
     windowchrome.apply_scrollbars(area)          # per scroll area
     windowchrome.scrollbar_style()               # the stylesheet on its own
 
+Radio buttons with an enlarged, visibly outlined indicator, for the same
+reasons and with the same lack of setup:
+
+    windowchrome.apply_radios(*buttons)          # per button
+    windowchrome.radio_style()                   # the stylesheet on its own
+
 See README.md.
 """
 
@@ -31,6 +37,12 @@ from __future__ import annotations
 
 from .markdowndialog import MarkdownDialog, close_markdown_windows, show_markdown
 from .markdownview import MarkdownView, heading_slug, heading_slugs
+from .radiobuttons import (
+    RADIO_BORDER_WIDTH,
+    RADIO_INDICATOR_SIZE,
+    apply_radios,
+    radio_style,
+)
 from .scrollbars import (
     MIN_SCROLLBAR_EXTENT,
     SCROLLBAR_SCALE,
@@ -50,10 +62,13 @@ __all__ = [
     "DECORATION_ENV",
     "DEFAULT_THEME",
     "MIN_SCROLLBAR_EXTENT",
+    "RADIO_BORDER_WIDTH",
+    "RADIO_INDICATOR_SIZE",
     "SCROLLBAR_SCALE",
     "ChromeTheme",
     "MarkdownDialog",
     "MarkdownView",
+    "apply_radios",
     "apply_scrollbars",
     "body_text_color",
     "body_window_color",
@@ -62,6 +77,7 @@ __all__ = [
     "heading_slug",
     "heading_slugs",
     "install",
+    "radio_style",
     "scrollbar_style",
     "show_markdown",
     "theme",

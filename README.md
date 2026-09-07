@@ -2,13 +2,14 @@
 
 This project is a dependency that's required by Sonar, Start Menu, Postit, and Lingo which are the four PyQt6 apps available under the 'clay-ferguson' github repositories. To use any of those four applications you'll need to have this project in a sibling folder next to those folders
 
-This package does three unrelated things for a PyQt6 application on Linux:
+This package does four unrelated things for a PyQt6 application on Linux:
 
 1. **A colored title bar** (§1–§6), so a window reads as yours rather than as a gray box. Wayland only, in effect, and order-sensitive to set up.
 2. **A markdown viewer** (§5), so an app can show its own documentation — whatever is in its `docs/` folder — inside itself, with working links and images. No setup, no platform requirement, and no relationship to the title bar beyond where it reads two colors from.
 3. **Wide scroll bars** (§9), about twice the thickness the desktop draws, so they are easier to grab with the mouse. Per scroll area, opt-in, and self-contained.
+4. **Radio buttons** (§10) with an enlarged, visibly outlined indicator, in place of the small near-black one the desktop draws. Per button, opt-in, and self-contained in the same way.
 
-Written for an AI agent integrating it into an existing app. For the title bar, read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7 to check that what you changed actually paints. For the viewer, §5 is self-contained, and so is §9 for the scroll bars.
+Written for an AI agent integrating it into an existing app. For the title bar, read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7 to check that what you changed actually paints. For the viewer, §5 is self-contained, and so are §9 for the scroll bars and §10 for the radio buttons.
 
 The numbering is historical: §9 was added after §7 and §8 were written, and is not renumbered into place because the four consuming apps cite these section numbers from their own `AGENTS.md`.
 
@@ -376,3 +377,26 @@ apply_scrollbars(edit, field)
 ### Why this reads the palette directly
 
 This is the one place in the library that reads a color straight from `QApplication.palette()`, and gotcha 3 says not to. Gotcha 3 is about `Window` and `WindowText`, the two roles `install()` repurposes for the title bar — a body color derived from those has to come from `body_window_color()`/`body_text_color()` or it comes out tinted with the title bar. `Base` is not one of them and is never touched, so reading it here is correct, and routing it through the body accessors would be actively wrong.
+
+---
+
+## 10. Radio buttons
+
+The native radio indicator is small — around 13px — and rings itself in a near-black that all but disappears against a dark dialog. `radio_style()` returns a Qt stylesheet drawing a bigger one in a color that shows, and `apply_radios()` puts it on the buttons:
+
+```python
+from windowchrome import apply_radios
+
+apply_radios(self._file_radio, self._sh_radio,
+             base=field_background, point_size=UI_POINT_SIZE)
+```
+
+Like the scroll bars (§9): nothing to call before or after the `QApplication`, no platform requirement, no relationship to the title bar, and opt-in per widget rather than an application-wide stylesheet that would sever palette inheritance everywhere (gotcha 1).
+
+Three things about it are deliberate:
+
+- **The whole indicator has to be described.** Styling `::indicator` at all opts the button out of native drawing, so the circle, its ring and the checked state are all this stylesheet's problem. There is no "keep the native dot, just bigger".
+- **The checked state is a filled circle, not a ring with a dot in it.** A stylesheet element has one border, so a gap between the ring and an inner dot cannot be drawn without giving up the ring — and the ring is what makes the *unchecked* state visible at all. At `RADIO_INDICATOR_SIZE` (22px) a solid fill is unambiguous.
+- **The ring and the fill come from the palette's `Text`.** So the indicator reads as bright as the label beside it, and follows the desktop between a light theme and a dark one instead of pinning a gray that suits one of them. This is the same direct palette read §9 makes, and for the same reason it is not the gotcha-3 mistake: `install()` repurposes `Window` and `WindowText`, and `Text`/`Base` are untouched.
+
+`base` is the color painted inside an unchecked circle — the same argument, with the same reasoning, as the scroll bars' `base` (§9). It defaults to the palette's `Base`; a host whose dialog fields are painted some color derived from `Base` passes that instead. `point_size` sets the label's font size, and is left to the widget's own font when omitted.
