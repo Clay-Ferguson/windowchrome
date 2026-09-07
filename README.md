@@ -2,14 +2,15 @@
 
 This project is a dependency that's required by Sonar, Start Menu, Postit, and Lingo which are the four PyQt6 apps available under the 'clay-ferguson' github repositories. To use any of those four applications you'll need to have this project in a sibling folder next to those folders
 
-This package does four unrelated things for a PyQt6 application on Linux:
+This package does five unrelated things for a PyQt6 application on Linux:
 
 1. **A colored title bar** (§1–§6), so a window reads as yours rather than as a gray box. Wayland only, in effect, and order-sensitive to set up.
 2. **A markdown viewer** (§5), so an app can show its own documentation — whatever is in its `docs/` folder — inside itself, with working links and images. No setup, no platform requirement, and no relationship to the title bar beyond where it reads two colors from.
 3. **Wide scroll bars** (§9), about twice the thickness the desktop draws, so they are easier to grab with the mouse. Per scroll area, opt-in, and self-contained.
 4. **Radio buttons** (§10) with an enlarged, visibly outlined indicator, in place of the small near-black one the desktop draws. Per button, opt-in, and self-contained in the same way.
+5. **A toggle switch** (§11) — a track with a sliding knob, to put where a check box would have gone. A widget you construct rather than a style you apply, and self-contained in the same way.
 
-Written for an AI agent integrating it into an existing app. For the title bar, read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7 to check that what you changed actually paints. For the viewer, §5 is self-contained, and so are §9 for the scroll bars and §10 for the radio buttons.
+Written for an AI agent integrating it into an existing app. For the title bar, read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7 to check that what you changed actually paints. For the viewer, §5 is self-contained, and so are §9 for the scroll bars, §10 for the radio buttons and §11 for the toggle switch.
 
 The numbering is historical: §9 was added after §7 and §8 were written, and is not renumbered into place because the four consuming apps cite these section numbers from their own `AGENTS.md`.
 
@@ -400,3 +401,26 @@ Three things about it are deliberate:
 - **The ring and the fill come from the palette's `Text`.** So the indicator reads as bright as the label beside it, and follows the desktop between a light theme and a dark one instead of pinning a gray that suits one of them. This is the same direct palette read §9 makes, and for the same reason it is not the gotcha-3 mistake: `install()` repurposes `Window` and `WindowText`, and `Text`/`Base` are untouched.
 
 `base` is the color painted inside an unchecked circle — the same argument, with the same reasoning, as the scroll bars' `base` (§9). It defaults to the palette's `Base`; a host whose dialog fields are painted some color derived from `Base` passes that instead. `point_size` sets the label's font size, and is left to the widget's own font when omitted.
+
+---
+
+## 11. The toggle switch
+
+Where a setting is on or off and the app wants to *say* so — a mode you can see from across the room — `ToggleSwitch` draws the switch a phone's settings screen draws: a rounded track with a knob that slides to the far end when it is on.
+
+```python
+from windowchrome import ToggleSwitch
+
+self.edit_toggle = ToggleSwitch(self, on_color=HIGHLIGHT_BG)
+self.edit_toggle.toggled.connect(self._handle_edit_toggled)
+```
+
+Like the scroll bars (§9) and the radio buttons (§10): nothing to call before or after the `QApplication`, no platform requirement, and no relationship to the title bar.
+
+Three things about it are worth knowing:
+
+- **It is a painted widget, not a stylesheet.** The other two helpers are stylesheets because what was wrong with the native widget was its size and its color. Here the *shape* is wrong: a check box indicator is a square with a tick in it, and no stylesheet moves a knob from one end of a track to the other. Qt's own route would be a pair of images swapped on toggle, which pins the colors into files. A checkable `QAbstractButton` with its own `paintEvent` is a dozen lines and follows whatever colors it is handed.
+- **It is still the button it inherits from.** `isChecked()`, `setChecked()`, `toggle()`, `toggled`/`clicked`, Space to flip it, and the focus and tab behavior are all `QAbstractButton`'s. Only the painting is this library's, so a host swapping a `QCheckBox` for one changes the constructor and nothing else. It has no label of its own — put a `QLabel` beside it, which is what a settings row wants anyway.
+- **Its size is fixed, not laid out.** `TOGGLE_WIDTH`×`TOGGLE_HEIGHT` (40×22) by default, overridable per switch with `width=`/`height=`. A layout that stretched the track would not stretch the knob's travel with it, and the travel is what reads as a switch.
+
+`on_color` is the track while checked — the host's accent, and the one argument worth passing; it defaults to the palette's `Highlight`. `off_color` (`#888888`) and `knob_color` (`#ffffff`) are pinned rather than taken from the palette: `Window` is the title bar's under `install()`, and `Base` is the pane the switch is sitting on, so a switch painted from either would disappear into its background. Both are overridable. All three take a `QColor` or anything `QColor` accepts, since a host's accent is usually already a `"#rrggbb"` constant.

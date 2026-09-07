@@ -30,6 +30,12 @@ reasons and with the same lack of setup:
     windowchrome.apply_radios(*buttons)          # per button
     windowchrome.radio_style()                   # the stylesheet on its own
 
+An on/off switch to put where a check box would have gone — a painted
+widget rather than a stylesheet, because the shape itself differs, but
+with the same lack of setup:
+
+    windowchrome.ToggleSwitch(parent, on_color=...)
+
 See README.md.
 """
 
@@ -57,6 +63,14 @@ from .titlebar import (
     configure,
     install,
 )
+from .toggleswitch import (
+    TOGGLE_HEIGHT,
+    TOGGLE_KNOB_COLOR,
+    TOGGLE_KNOB_MARGIN,
+    TOGGLE_OFF_COLOR,
+    TOGGLE_WIDTH,
+    ToggleSwitch,
+)
 
 __all__ = [
     "DECORATION_ENV",
@@ -65,9 +79,15 @@ __all__ = [
     "RADIO_BORDER_WIDTH",
     "RADIO_INDICATOR_SIZE",
     "SCROLLBAR_SCALE",
+    "TOGGLE_HEIGHT",
+    "TOGGLE_KNOB_COLOR",
+    "TOGGLE_KNOB_MARGIN",
+    "TOGGLE_OFF_COLOR",
+    "TOGGLE_WIDTH",
     "ChromeTheme",
     "MarkdownDialog",
     "MarkdownView",
+    "ToggleSwitch",
     "apply_radios",
     "apply_scrollbars",
     "body_text_color",
