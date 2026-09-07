@@ -30,6 +30,12 @@ reasons and with the same lack of setup:
     windowchrome.apply_radios(*buttons)          # per button
     windowchrome.radio_style()                   # the stylesheet on its own
 
+Check boxes with an enlarged indicator, keeping Qt's own tick — a style
+rather than a stylesheet, for the reason given in the module:
+
+    windowchrome.apply_checkboxes(*boxes)        # per box
+    windowchrome.LargeIndicatorStyle()           # the style on its own
+
 An on/off switch to put where a check box would have gone — a painted
 widget rather than a stylesheet, because the shape itself differs, but
 with the same lack of setup:
@@ -41,6 +47,7 @@ See README.md.
 
 from __future__ import annotations
 
+from .checkboxes import CHECKBOX_SCALE, LargeIndicatorStyle, apply_checkboxes
 from .markdowndialog import MarkdownDialog, close_markdown_windows, show_markdown
 from .markdownview import MarkdownView, heading_slug, heading_slugs
 from .radiobuttons import (
@@ -73,6 +80,7 @@ from .toggleswitch import (
 )
 
 __all__ = [
+    "CHECKBOX_SCALE",
     "DECORATION_ENV",
     "DEFAULT_THEME",
     "MIN_SCROLLBAR_EXTENT",
@@ -85,9 +93,11 @@ __all__ = [
     "TOGGLE_OFF_COLOR",
     "TOGGLE_WIDTH",
     "ChromeTheme",
+    "LargeIndicatorStyle",
     "MarkdownDialog",
     "MarkdownView",
     "ToggleSwitch",
+    "apply_checkboxes",
     "apply_radios",
     "apply_scrollbars",
     "body_text_color",

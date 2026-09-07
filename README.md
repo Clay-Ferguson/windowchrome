@@ -9,8 +9,9 @@ This package does five unrelated things for a PyQt6 application on Linux:
 3. **Wide scroll bars** (§9), about twice the thickness the desktop draws, so they are easier to grab with the mouse. Per scroll area, opt-in, and self-contained.
 4. **Radio buttons** (§10) with an enlarged, visibly outlined indicator, in place of the small near-black one the desktop draws. Per button, opt-in, and self-contained in the same way.
 5. **A toggle switch** (§11) — a track with a sliding knob, to put where a check box would have gone. A widget you construct rather than a style you apply, and self-contained in the same way.
+6. **Check boxes** (§12) with an enlarged indicator, keeping the tick Qt draws. A style rather than a stylesheet, for the reason §12 gives. Per box, opt-in, and self-contained in the same way.
 
-Written for an AI agent integrating it into an existing app. For the title bar, read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7 to check that what you changed actually paints. For the viewer, §5 is self-contained, and so are §9 for the scroll bars, §10 for the radio buttons and §11 for the toggle switch.
+Written for an AI agent integrating it into an existing app. For the title bar, read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7 to check that what you changed actually paints. For the viewer, §5 is self-contained, and so are §9 for the scroll bars, §10 for the radio buttons, §11 for the toggle switch and §12 for the check boxes.
 
 The numbering is historical: §9 was added after §7 and §8 were written, and is not renumbered into place because the four consuming apps cite these section numbers from their own `AGENTS.md`.
 
@@ -424,3 +425,29 @@ Three things about it are worth knowing:
 - **Its size is fixed, not laid out.** `TOGGLE_WIDTH`×`TOGGLE_HEIGHT` (40×22) by default, overridable per switch with `width=`/`height=`. A layout that stretched the track would not stretch the knob's travel with it, and the travel is what reads as a switch.
 
 `on_color` is the track while checked — the host's accent, and the one argument worth passing; it defaults to the palette's `Highlight`. `off_color` (`#888888`) and `knob_color` (`#ffffff`) are pinned rather than taken from the palette: `Window` is the title bar's under `install()`, and `Base` is the pane the switch is sitting on, so a switch painted from either would disappear into its background. Both are overridable. All three take a `QColor` or anything `QColor` accepts, since a host's accent is usually already a `"#rrggbb"` constant.
+
+---
+
+## 12. Check boxes
+
+The native check box indicator is around 13px — sized for a mouse that never misses. `apply_checkboxes()` draws it at `CHECKBOX_SCALE` (2) times that, and changes nothing else about the widget:
+
+```python
+from windowchrome import apply_checkboxes
+
+apply_checkboxes(self.wrap_check, self.archive_check)
+```
+
+Like the scroll bars (§9), the radio buttons (§10) and the toggle switch (§11): nothing to call before or after the `QApplication`, no platform requirement, no relationship to the title bar, and opt-in per widget rather than an application-wide style.
+
+Three things about it are deliberate:
+
+- **It is a `QProxyStyle`, not a stylesheet, and that is not an oversight.** The indicator is sized by the style, so it cannot be made bigger from the outside. A stylesheet *can* set `::indicator`'s width and height — but styling that sub-control at all takes over its drawing, and the check mark goes with it: no stylesheet draws a tick without shipping an image, so the box comes out never looking ticked. That is precisely the trade `radio_style()` (§10) accepts and this one cannot, because a filled circle is drawable from a stylesheet and a tick is not. Overriding the pixel metric keeps Qt's own rendering and changes only the rectangle it is asked to fill.
+- **Only `PM_IndicatorWidth`/`PM_IndicatorHeight` are answered; every other metric is forwarded.** A style that scaled anything else would grow the widget's spacing and frames along with the box. `PM_ExclusiveIndicatorWidth` — the *radio* indicator — is among the metrics left alone, so the two helpers do not overlap. `test_every_other_metric_is_left_alone` is the guard.
+- **A style is built per box and parented to it.** Not one shared instance and not `QApplication.setStyle()`: this is one widget's affordance, not a change of theme. The parenting is also load-bearing — `setStyle()` does not take ownership, so a style with no parent is collected out from under a live widget and crashes it.
+
+One thing to know before writing a test or debugging one: **`box.style()` does not necessarily hand this style back.** As soon as any ancestor widget carries a stylesheet, Qt slips its own `QStyleSheetStyle` in front of the widget's style and `style()` returns *that*. The metric still comes through it — the indicator is drawn at the enlarged size either way — but an `isinstance` check against `LargeIndicatorStyle` passes on a bare check box and fails on the same box inside a real window. Ask the box for the metric, or for `findChildren(LargeIndicatorStyle)`, and not for `style()`'s type.
+
+Nothing here reads the palette, unlike §9 and §10: the native drawing already follows the theme, and only the size was ever wrong. `LargeIndicatorStyle` is exported for a host that wants the style object itself — to hand to a widget `apply_checkboxes()` does not cover, say — but the applier is the interface.
+
+Where a check box is the wrong *shape* rather than the wrong size — an on/off setting the app wants to state loudly — `ToggleSwitch` (§11) is the other answer.
