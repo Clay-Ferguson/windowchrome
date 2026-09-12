@@ -3,7 +3,7 @@
 Everything here is Wayland-only. On any other platform the window manager
 draws the title bar out of process, where neither the palette nor a decoration
 plugin has anything to say about it, and `install()` returns without doing
-anything. The border in `border.py` works everywhere.
+anything.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import os
 import warnings
 
 from PyQt6.QtCore import QEvent, QObject, Qt
-from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtGui import QColor, QFont, QPalette
 from PyQt6.QtWidgets import QAbstractItemView, QApplication, QWidget
 
 from .theme import DEFAULT_THEME, ChromeTheme, set_theme, theme
@@ -26,6 +26,16 @@ DECORATION_ENV = "QT_WAYLAND_DECORATION"
 # it repurposes those roles for the decoration. Empty when the title bar was
 # left alone, which is what makes `_apply_body_palette()` a no-op off Wayland.
 _BODY_ROLES: dict[QPalette.ColorGroup, dict[QPalette.ColorRole, QColor]] = {}
+
+# The font the window *body* should be drawn with, captured by `install()`
+# before it puts the title's font on the application. `None` when the title bar
+# was left alone, which is what makes `body_font()` fall through off Wayland.
+_BODY_FONT: QFont | None = None
+
+# The class the body font is registered against. Every widget inherits from
+# `QWidget`, and `QApplicationPrivate::font(w)` resolves a class font by
+# walking `w->inherits(key)` — so one entry covers the whole application.
+_BODY_FONT_CLASS = "QWidget"
 
 # The three (group, role) pairs `QWaylandBradientDecoration::paint()` reads.
 # Taken from the shipped plugin rather than from documentation: disassembling
@@ -73,9 +83,18 @@ def install(app: QApplication) -> None:
     every widget as it is polished. A widget the filter somehow misses comes
     out wearing the title bar's colors, which is loud but not broken.
 
-    Call this *after* any palette tuning the application does of its own: the
-    body colors are captured at this moment, and a palette changed afterwards
-    is a palette this never saw.
+    The title's *font* is reached the same way and for the same reason — the
+    decoration paints with the application font, so the application font is
+    what has to carry the title's weight, and the body is handed its own font
+    back. `_install_title_font()` has the details.
+
+    Call this *after* any palette or font tuning the application does of its
+    own: the body colors and the body font are captured at this moment, and a
+    palette or font changed afterwards is one this never saw. An
+    `app.setFont()` after this point is worse than merely unseen — it clears
+    the class-font table `_install_title_font()` writes into, so the body font
+    stops being handed back and the whole application inherits the title's
+    weight.
 
     A no-op off Wayland, where the platform draws the title bar and neither
     the palette nor the decorator has anything to say about it.
@@ -117,10 +136,52 @@ def install(app: QApplication) -> None:
         QColor(chrome.title_fg_inactive),
     )
     app.setPalette(palette)
+    _install_title_font(app, chrome)
     # After the palette, so the filter's first widget already sees the roles
     # it has to hand back. See `_BodyPaletteFilter` for why every widget needs
     # visiting rather than just the windows.
     app.installEventFilter(_BODY_FILTER)
+
+
+def _install_title_font(app: QApplication, chrome: ChromeTheme) -> None:
+    """Put the title's font on the application, and the body's back on widgets.
+
+    Same shape as the palette above, and for the same reason: the decoration
+    has no font of its own to set. `QWaylandBradientDecoration::paint()` does
+    `QFont font = p.font()` on a painter over the window's backing store —
+    a non-widget paint device, so that font is `QGuiApplication::font()`, the
+    plain application font. Making the title bold means making the
+    *application* font bold, and then giving the body back the font it had.
+
+    Two `setFont` calls, and **the order between them is not interchangeable**.
+    `QApplication::setFont(font)` with no class name clears the class-font
+    table on its way through, so the app-wide call has to come first or it
+    wipes the entry the second one is about to rely on.
+
+    Handing the body font back is a class font rather than the polish-time
+    filter the palette needs, and that is the better tool here: a class font is
+    the *default* a widget resolves against, so a widget that set its own font
+    (the `sh` editor's fixed-width one, a view's larger point size) keeps it,
+    and a stylesheet's `font-size` still merges on top. The filter would have
+    to overwrite a widget's font to place it, and could not tell the two apart.
+    It reaches everything for the reason `_BODY_FONT_CLASS` gives, so there is
+    no per-widget leak to chase either — `QStyleSheetStyle` resolves a font
+    from the *parent* widget, not from the application, which is exactly the
+    thing it does not do for palettes.
+
+    What it does not reach: the application font is now the title's, so any
+    `QPainter` on a pixmap or image starts out bold, since that is the very
+    path the decoration takes. Code drawing text on one wants `body_font()`.
+    """
+    global _BODY_FONT
+    _BODY_FONT = QFont(app.font())
+
+    title_font = QFont(_BODY_FONT)
+    title_font.setWeight(chrome.title_font_weight)
+    title_font.setStretch(chrome.title_font_stretch)
+
+    app.setFont(title_font)  # app-wide: the font the decoration reads
+    app.setFont(QFont(_BODY_FONT), _BODY_FONT_CLASS)  # ... and every widget back
 
 
 def body_window_color() -> QColor:
@@ -177,6 +238,30 @@ def body_text_color() -> QColor:
             QApplication.palette().color(QPalette.ColorRole.WindowText),
         )
     )
+
+
+def body_font() -> QFont:
+    """The font the window *body* is drawn with.
+
+    Not `QApplication.font()`: once `install()` has run that is the *title*
+    font — bold, and possibly stretched — because the decoration paints with
+    the application font and nothing else. Widgets are unaffected, since the
+    body font is handed back to them as a class font, so this is only needed
+    where the application font is read directly. In practice that means a
+    `QPainter` over a pixmap or an image: its default font is
+    `QGuiApplication::font()`, which is the same path the decoration takes, so
+    text drawn on a pixmap — a glyph rendered into an icon, say — comes out
+    bold unless it starts from here.
+
+    Falls through to the application font when the title bar was left alone,
+    which is the same font it would have read anyway.
+
+    A copy, not the captured font itself: `QFont` is mutable and the obvious
+    `f = body_font(); f.setPointSize(20)` would otherwise rewrite the font this
+    module hands to every widget. Same hazard as `body_text_color()`, which
+    records what it cost when it was left open.
+    """
+    return QFont(_BODY_FONT if _BODY_FONT is not None else QApplication.font())
 
 
 def _apply_body_palette(widget: QWidget) -> None:

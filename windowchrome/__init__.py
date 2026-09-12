@@ -9,7 +9,8 @@ draws the decoration in-process:
     windowchrome.install(app)          # AFTER QApplication, AFTER palette tuning
     windowchrome.body_window_color()   # for any derived body color
     windowchrome.body_text_color()     # ... and any derived body text color
-    windowchrome.ChromeTheme(...)      # the colors, and the decoration plugin
+    windowchrome.body_font()           # ... and for a QPainter on a pixmap
+    windowchrome.ChromeTheme(...)      # the colors, the title font, the plugin
 
 The markdown viewer, for showing an application's own documentation inside
 it. No setup, no platform requirement, and no dependency on the chrome:
@@ -65,6 +66,7 @@ from .scrollbars import (
 from .theme import DEFAULT_THEME, ChromeTheme, theme
 from .titlebar import (
     DECORATION_ENV,
+    body_font,
     body_text_color,
     body_window_color,
     configure,
@@ -100,6 +102,7 @@ __all__ = [
     "apply_checkboxes",
     "apply_radios",
     "apply_scrollbars",
+    "body_font",
     "body_text_color",
     "body_window_color",
     "close_markdown_windows",

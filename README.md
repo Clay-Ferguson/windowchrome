@@ -4,7 +4,7 @@ This project is a dependency that's required by Sonar, Start Menu, Postit, and L
 
 This package does five unrelated things for a PyQt6 application on Linux:
 
-1. **A colored title bar** (§1–§6), so a window reads as yours rather than as a gray box. Wayland only, in effect, and order-sensitive to set up.
+1. **A colored title bar** (§1–§6), in a font of your choosing, so a window reads as yours rather than as a gray box. Wayland only, in effect, and order-sensitive to set up.
 2. **A markdown viewer** (§5), so an app can show its own documentation — whatever is in its `docs/` folder — inside itself, with working links and images. No setup, no platform requirement, and no relationship to the title bar beyond where it reads two colors from.
 3. **Wide scroll bars** (§9), about twice the thickness the desktop draws, so they are easier to grab with the mouse. Per scroll area, opt-in, and self-contained.
 4. **Radio buttons** (§10) with an enlarged, visibly outlined indicator, in place of the small near-black one the desktop draws. Per button, opt-in, and self-contained in the same way.
@@ -19,9 +19,9 @@ The numbering is historical: §9 was added after §7 and §8 were written, and i
 
 ## 1. What it does, and what it cannot
 
-**Does:** paints the window's title bar — and, with it, the thin frame the decoration draws down the sides and along the bottom — in a color of your choosing, so a window reads as yours rather than as a gray box.
+**Does:** paints the window's title bar — and, with it, the thin frame the decoration draws down the sides and along the bottom — in a color of your choosing, so a window reads as yours rather than as a gray box. Sets the *weight* and *stretch* the title is drawn at, and keeps the title one color whether the window is focused or not.
 
-**Cannot:** change the height of the title bar, or the thickness of that frame. Do not spend a session looking for the knob — there isn't one. On Wayland the title bar is drawn by a Qt decoration plugin, and `QWaylandBradientDecoration::margins()` disassembles to:
+**Cannot:** change the height of the title bar, the thickness of that frame, or the title's font *size*. Do not spend a session looking for the knob — there isn't one. On Wayland the title bar is drawn by a Qt decoration plugin, and `QWaylandBradientDecoration::margins()` disassembles to:
 
 ```
 cmp    $0x2,%esi            ; MarginsType == ShadowsOnly?
@@ -41,6 +41,19 @@ lea    (%rdx,%rdx,2),%rdx   ; bottom = 3
 3px on the sides and bottom is what you get, and it is the right amount.
 
 **This library used to paint a thicker border of its own, just inside the window, to work around that. It was removed deliberately — do not add it back.** It was `bordered_body()`, and it cost every consumer a wrapper widget per window plus two ordering rules (it overwrote the window's `objectName` and its stylesheet); it made one app restructure its status display around it; and on Wayland the extra band rendered at the wrong thickness while the window was unfocused. The thin frame the decoration draws is what the design wants.
+
+**Nor is the title's point size a knob**, for the same kind of reason one level down. `QWaylandBradientDecoration::paint()` takes the painter's font and overwrites its size:
+
+```
+call   4980 <QPainter::font() const@plt>    ; the painter's font...
+call   49c0 <QFont::QFont(QFont const&)>    ; ...copied...
+mov    $0xe,%esi                            ; ...and 14px, compiled in
+call   47b0 <QFont::setPixelSize(int)@plt>
+```
+
+So 14 pixels it is, whatever point size the application font carries. Weight, stretch, family and italic all survive, because the plugin overwrites none of them — which is what `title_font_weight` and `title_font_stretch` reach. `title_font_stretch` is the only lever pointing at "bigger".
+
+**And the title's color does not change when the window loses focus** — not by default. That is `title_fg_inactive`, which defaults to the same white as `title_fg` rather than to a dimmed version of it. `bradient` paints the title from the palette's `Disabled` group whenever the window is not the active one, and on Wayland that includes the whole of an interactive move: grab the bar, and keyboard focus goes with the drag. A title that dims the instant the window is picked up reads as the window breaking rather than as a focus cue. Set `title_fg_inactive` to something dimmer to get the conventional look back.
 
 **The markdown viewer does not** render HTML, apply CSS, restyle what Qt rendered (no theme-aware link color, no code-block background — see §5 for why that is a decision), fetch anything over the network, offer a Forward button or a find-in-page. It renders local markdown files, and it is deliberately not a browser.
 
@@ -98,15 +111,18 @@ app = QApplication(sys.argv)
 
 It uses `setdefault`, so an explicit `QT_WAYLAND_DECORATION` already in the environment still wins.
 
-### 2. `install()` — after `QApplication`, and after your own palette work
+### 2. `install()` — after `QApplication`, and after your own palette and font work
 
 ```python
 app = QApplication(sys.argv)
 tune_palette(app)            # whatever the app does to its own palette
-windowchrome.install(app)    # <- after that, not before
+app.setFont(app_font)        # ... and to its own default font
+windowchrome.install(app)    # <- after both, not before
 ```
 
-**Why:** `install()` captures the body's surface and text colors at the moment it runs, then overwrites those palette roles with the title bar's. A palette changed afterwards is a palette it never saw, and `body_window_color()` will hand back a stale color.
+**Why:** `install()` captures the body's surface color, text color and font at the moment it runs, then overwrites those palette roles — and the application font — with the title bar's. A palette or font changed afterwards is one it never saw, and `body_window_color()` will hand back a stale color.
+
+**An `app.setFont()` *after* `install()` is worse than merely unseen.** `QApplication::setFont(font)` with no class name clears the class-font table, which is where `install()` put the body font for every widget to inherit — so the body font stops being handed back and the whole application comes out in the title's weight. Set the app font first; `install()` will pick it up.
 
 It also warns (a `RuntimeWarning`) if `QT_WAYLAND_DECORATION` does not match the theme's `decoration` — i.e. if step 1 was skipped or ran too late.
 
@@ -126,7 +142,20 @@ Both matter, and `WindowText` is the easier one to miss: a muted or alpha-blende
 
 Both accessors return a **copy**, so mutating what they hand back (`.setAlpha()`, say) is safe. It was not always: they used to return the captured color itself, and one app's `muted = body_text_color(); muted.setAlpha(180)` rewrote the color the library gives every widget, washing out the whole application's text.
 
-That is the whole integration: three calls, no per-window work, and nothing about a window's own layout or stylesheet changes.
+### 4. `body_font()` — for a `QPainter` on a pixmap, and nothing else
+
+Widgets need no change: the body font is handed back to them as a class font, so a widget's own `setFont()` and a stylesheet's `font-size` both keep working exactly as before. What does need changing is code that reads the *application* font directly, and in practice that means a painter over a pixmap or an image:
+
+```python
+- font = painter.font()        # a QPainter on a pixmap starts with the app font
++ font = windowchrome.body_font()
+  font.setPointSize(...)
+  painter.setFont(font)
+```
+
+That default *is* the title font now — it is the very path the decoration takes to draw the title — so a glyph rendered into an icon comes out bold unless it starts here. Like the two color accessors, this returns a **copy**, so resizing what it hands back is safe. See gotcha 5 for the one other place the title font is briefly visible.
+
+That is the whole integration: three calls plus whatever `body_*` reads the app already had, no per-window work, and nothing about a window's own layout or stylesheet changes.
 
 ## 5. The markdown viewer
 
@@ -259,6 +288,19 @@ Qt ships exactly two decoration plugins and defaults to `adwaita`:
 
 `libadwaita.so` links **no `QPalette` symbol at all** (`nm -DC` confirms): its grays are compiled in and unreachable from application code. `libbradient.so` links `QPalette::brush()`, and disassembling `QWaylandBradientDecoration::paint()` shows **exactly three** call sites — `(Active, Window)`, `(Active, WindowText)`, `(Disabled, WindowText)` — re-read on every repaint rather than cached at construction. Those three roles are what this library repurposes, and why the body palette has to be handed back.
 
+### 5. The application font is the title bar's font
+
+There is no font on a Qt Wayland decoration to set. `bradient` paints the title with `QPainter::font()` over the window's backing store — a non-widget paint device, so that font is `QGuiApplication::font()`, plain and unqualified. Making the title bold therefore means making the *application* font bold, exactly as coloring the bar means repurposing `Window` and `WindowText`, and the body has to be handed its own font back.
+
+That handback is a **class font** — `app.setFont(body, "QWidget")` — not the polish-time filter the palette needs, and the difference is worth knowing: a class font is the default a widget *resolves against*, so a widget that set its own font keeps it and a stylesheet's `font-size` still merges on top, while a filter would have to overwrite a widget's font to place it and could not tell an explicit font from an inherited one. One entry covers everything, because `QApplicationPrivate::font(w)` matches a class font by `w->inherits(key)`. And unlike the palette, nothing leaks past it: `QStyleSheetStyle` resolves a font from the *parent widget* rather than from the application, which is precisely what it does not do for palettes.
+
+Two places still see the title font, and both are the mechanism showing through rather than a bug:
+
+- **A `QPainter` on a pixmap or image**, per step 4 of §4 — `body_font()` is the answer.
+- **A top-level widget, between its constructor and its first show.** `QWidget`'s constructor seeds a *window's* font from `QApplication::font()` with no widget argument; the class font only reaches it when the font is re-resolved, at polish. It is never painted with — but a window that measures `self.font()` in its own constructor measures the title font and sizes itself a little wide. `body_font()` again. A child widget is unaffected at every point.
+
+`tests/test_titlefont.py` pins all of it down, including the ordering rule, by calling the font half directly — which is the only part of the title bar that *is* testable off Wayland.
+
 ## 7. How to verify an integration
 
 None of this is unit-testable — it is pixels and a plugin choice — so check it directly.
@@ -287,6 +329,16 @@ leaked = [w for w in app.allWidgets()
           if w.palette().color(QPalette.ColorGroup.Active,
                                QPalette.ColorRole.Window).name()
           == APP_THEME.title_bg]
+assert leaked == []
+```
+
+**Nothing leaked the title bar font** (which, unlike the color, only shows up on a widget that was never shown — see gotcha 5):
+
+```python
+title_weight = QApplication.font().weight()
+leaked = [w for w in app.allWidgets()
+          if w.isVisible() and w.font().weight() == title_weight
+          and w.font().weight() != windowchrome.body_font().weight()]
 assert leaked == []
 ```
 
