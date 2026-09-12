@@ -1,15 +1,7 @@
 """Scroll bars wide enough to grab with the mouse.
 
-Independent of the title bar: no setup, no platform requirement, and nothing
-to call before or after the QApplication. A host asks for the wider bars one
-scroll area at a time.
-
-Unlike the rest of the library this reads `QPalette.Base` straight from the
-application palette, and that is deliberate. `install()` repurposes `Window`
-and `WindowText` for the title bar, which is why every *body* color derived
-from those two has to come from `body_window_color()`/`body_text_color()`
-instead — but `Base` is untouched, so reading it here is correct and routing
-it through the body accessors would be wrong.
+No setup, no platform requirement, and nothing to call before or after the
+QApplication. A host asks for the wider bars one scroll area at a time.
 """
 
 from __future__ import annotations

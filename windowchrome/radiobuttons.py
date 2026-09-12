@@ -1,20 +1,14 @@
 """Radio buttons big enough to see, with an indicator that is actually visible.
 
-Independent of the title bar, like the scroll bars: no setup, no platform
-requirement, and nothing to call before or after the QApplication. A host
-styles its buttons one group at a time.
+Like the scroll bars: no setup, no platform requirement, and nothing to call
+before or after the QApplication. A host styles its buttons one group at a
+time.
 
 Two things are wrong with the native indicator under the dark themes these
 apps run in. It is small — around 13px, sized for a mouse and not for a
 glance — and its ring is drawn in a near-black that all but disappears
 against a dark dialog. Both are fixed here by drawing the indicator from a
 stylesheet instead.
-
-As with the scroll bars, this reads `QPalette.Base` and `QPalette.Text`
-straight from the application palette, and that is deliberate: `install()`
-repurposes `Window` and `WindowText` for the title bar, so only colors
-derived from *those two* have to come from `body_window_color()` /
-`body_text_color()`. `Base` and `Text` are untouched.
 """
 
 from __future__ import annotations

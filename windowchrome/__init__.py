@@ -1,32 +1,22 @@
-"""Shared window furniture for PyQt6 apps on Linux: chrome, a viewer, scroll bars.
+"""Shared widget looks for PyQt6 apps on Linux: a viewer, scroll bars, indicators.
 
-Three unrelated things live here, and only the first has an order to get right.
-
-The colored title bar — Wayland only, in effect, because that is where Qt
-draws the decoration in-process:
-
-    windowchrome.configure(theme)      # BEFORE QApplication is constructed
-    windowchrome.install(app)          # AFTER QApplication, AFTER palette tuning
-    windowchrome.body_window_color()   # for any derived body color
-    windowchrome.body_text_color()     # ... and any derived body text color
-    windowchrome.body_font()           # ... and for a QPainter on a pixmap
-    windowchrome.ChromeTheme(...)      # the colors, the title font, the plugin
+Five unrelated things live here, and none of them has any setup or ordering
+to get right.
 
 The markdown viewer, for showing an application's own documentation inside
-it. No setup, no platform requirement, and no dependency on the chrome:
+it:
 
     windowchrome.show_markdown(path, parent, button_factory=...)
     windowchrome.MarkdownView(...)     # the widget on its own, outside a dialog
     windowchrome.close_markdown_windows()
 
 Scroll bars about twice the desktop's own thickness, so they are easier to
-grab with the mouse. Like the viewer: no setup, no platform requirement:
+grab with the mouse:
 
     windowchrome.apply_scrollbars(area)          # per scroll area
     windowchrome.scrollbar_style()               # the stylesheet on its own
 
-Radio buttons with an enlarged, visibly outlined indicator, for the same
-reasons and with the same lack of setup:
+Radio buttons with an enlarged, visibly outlined indicator:
 
     windowchrome.apply_radios(*buttons)          # per button
     windowchrome.radio_style()                   # the stylesheet on its own
@@ -38,8 +28,7 @@ rather than a stylesheet, for the reason given in the module:
     windowchrome.LargeIndicatorStyle()           # the style on its own
 
 An on/off switch to put where a check box would have gone — a painted
-widget rather than a stylesheet, because the shape itself differs, but
-with the same lack of setup:
+widget rather than a stylesheet, because the shape itself differs:
 
     windowchrome.ToggleSwitch(parent, on_color=...)
 
@@ -63,15 +52,6 @@ from .scrollbars import (
     apply_scrollbars,
     scrollbar_style,
 )
-from .theme import DEFAULT_THEME, ChromeTheme, theme
-from .titlebar import (
-    DECORATION_ENV,
-    body_font,
-    body_text_color,
-    body_window_color,
-    configure,
-    install,
-)
 from .toggleswitch import (
     TOGGLE_HEIGHT,
     TOGGLE_KNOB_COLOR,
@@ -83,8 +63,6 @@ from .toggleswitch import (
 
 __all__ = [
     "CHECKBOX_SCALE",
-    "DECORATION_ENV",
-    "DEFAULT_THEME",
     "MIN_SCROLLBAR_EXTENT",
     "RADIO_BORDER_WIDTH",
     "RADIO_INDICATOR_SIZE",
@@ -94,7 +72,6 @@ __all__ = [
     "TOGGLE_KNOB_MARGIN",
     "TOGGLE_OFF_COLOR",
     "TOGGLE_WIDTH",
-    "ChromeTheme",
     "LargeIndicatorStyle",
     "MarkdownDialog",
     "MarkdownView",
@@ -102,16 +79,10 @@ __all__ = [
     "apply_checkboxes",
     "apply_radios",
     "apply_scrollbars",
-    "body_font",
-    "body_text_color",
-    "body_window_color",
     "close_markdown_windows",
-    "configure",
     "heading_slug",
     "heading_slugs",
-    "install",
     "radio_style",
     "scrollbar_style",
     "show_markdown",
-    "theme",
 ]

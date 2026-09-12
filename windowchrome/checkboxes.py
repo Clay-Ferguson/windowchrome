@@ -1,8 +1,8 @@
 """Check boxes whose indicator is big enough to hit, with the native tick kept.
 
-Independent of the title bar, like the scroll bars and the radio buttons: no
-setup, no platform requirement, and nothing to call before or after the
-QApplication. A host enlarges its boxes one widget at a time.
+Like the scroll bars and the radio buttons: no setup, no platform
+requirement, and nothing to call before or after the QApplication. A host
+enlarges its boxes one widget at a time.
 
 What is wrong with the native check box is only its *size*: around 13px,
 sized for a mouse that never misses. Unlike the radio indicator its colors

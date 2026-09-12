@@ -1,8 +1,8 @@
 """An on/off switch, shaped like the one a phone's settings screen draws.
 
-Independent of the title bar, like the scroll bars and the radio buttons: no
-setup, no platform requirement, and nothing to call before or after the
-QApplication. A host constructs one where it would have put a QCheckBox.
+Like the scroll bars and the radio buttons: no setup, no platform
+requirement, and nothing to call before or after the QApplication. A host
+constructs one where it would have put a QCheckBox.
 
 Why this is a painted widget and not a styled QCheckBox. The other two
 helpers here are stylesheets, because what was wrong with the native widget
@@ -36,9 +36,8 @@ TOGGLE_HEIGHT = 22
 TOGGLE_KNOB_MARGIN = 2
 
 # The off track. A mid gray reads as "inactive" against both a dark pane and
-# a light one, which no palette role reliably does — `Window` is the title
-# bar's under `install()`, and `Base` is the pane the switch sits on, so a
-# switch painted in it would disappear.
+# a light one, which no palette role reliably does — `Base` is the pane the
+# switch sits on, so a switch painted in it would disappear.
 TOGGLE_OFF_COLOR = "#888888"
 
 # The knob, on both states. White is what makes the off state legible as a

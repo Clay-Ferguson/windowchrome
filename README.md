@@ -4,63 +4,24 @@ This project is a dependency that's required by Sonar, Start Menu, Postit, and L
 
 This package does five unrelated things for a PyQt6 application on Linux:
 
-1. **A colored title bar** (§1–§6), in a font of your choosing, so a window reads as yours rather than as a gray box. Wayland only, in effect, and order-sensitive to set up.
-2. **A markdown viewer** (§5), so an app can show its own documentation — whatever is in its `docs/` folder — inside itself, with working links and images. No setup, no platform requirement, and no relationship to the title bar beyond where it reads two colors from.
-3. **Wide scroll bars** (§9), about twice the thickness the desktop draws, so they are easier to grab with the mouse. Per scroll area, opt-in, and self-contained.
-4. **Radio buttons** (§10) with an enlarged, visibly outlined indicator, in place of the small near-black one the desktop draws. Per button, opt-in, and self-contained in the same way.
-5. **A toggle switch** (§11) — a track with a sliding knob, to put where a check box would have gone. A widget you construct rather than a style you apply, and self-contained in the same way.
-6. **Check boxes** (§12) with an enlarged indicator, keeping the tick Qt draws. A style rather than a stylesheet, for the reason §12 gives. Per box, opt-in, and self-contained in the same way.
+1. **A markdown viewer** (§5), so an app can show its own documentation — whatever is in its `docs/` folder — inside itself, with working links and images.
+2. **Wide scroll bars** (§9), about twice the thickness the desktop draws, so they are easier to grab with the mouse. Per scroll area, opt-in, and self-contained.
+3. **Radio buttons** (§10) with an enlarged, visibly outlined indicator, in place of the small near-black one the desktop draws. Per button, opt-in, and self-contained in the same way.
+4. **A toggle switch** (§11) — a track with a sliding knob, to put where a check box would have gone. A widget you construct rather than a style you apply, and self-contained in the same way.
+5. **Check boxes** (§12) with an enlarged indicator, keeping the tick Qt draws. A style rather than a stylesheet, for the reason §12 gives. Per box, opt-in, and self-contained in the same way.
 
-Written for an AI agent integrating it into an existing app. For the title bar, read §4 (the checklist) and §6 (the gotchas) before changing anything, and §7 to check that what you changed actually paints. For the viewer, §5 is self-contained, and so are §9 for the scroll bars, §10 for the radio buttons, §11 for the toggle switch and §12 for the check boxes.
+None of them needs a setup call, an ordering rule around `QApplication`, or any particular platform. Written for an AI agent integrating it into an existing app: §3 covers installation, and each of §5, §9, §10, §11 and §12 is self-contained.
 
-The numbering is historical: §9 was added after §7 and §8 were written, and is not renumbered into place because the four consuming apps cite these section numbers from their own `AGENTS.md`.
+**There is no window chrome here, deliberately.** This library used to color the title bar and window frame, by choosing Qt's `bradient` Wayland decoration plugin and repurposing application palette roles and the application font for it. That was removed as too fragile — it rested on undocumented plugin internals and leaked into every consuming app. Do not reintroduce it.
+
+The numbering is historical: the sections that described the title bar (§1, §4, §6, §7) are gone, and the rest keep their numbers because the consuming apps cite them from their own `AGENTS.md`.
 
 ---
 
-## 1. What it does, and what it cannot
-
-**Does:** paints the window's title bar — and, with it, the thin frame the decoration draws down the sides and along the bottom — in a color of your choosing, so a window reads as yours rather than as a gray box. Sets the *weight* and *stretch* the title is drawn at, and keeps the title one color whether the window is focused or not.
-
-**Cannot:** change the height of the title bar, the thickness of that frame, or the title's font *size*. Do not spend a session looking for the knob — there isn't one. On Wayland the title bar is drawn by a Qt decoration plugin, and `QWaylandBradientDecoration::margins()` disassembles to:
-
-```
-cmp    $0x2,%esi            ; MarginsType == ShadowsOnly?
-movabs $0x1e00000003,%r8    ; packed: left=3, top=0x1e=30
-cmove  %rax,%r8             ; ShadowsOnly -> all zeros
-lea    (%rax,%rax,2),%eax   ; right  = 3
-lea    (%rdx,%rdx,2),%rdx   ; bottom = 3
-```
-
-`QMargins{left: 3, top: 30, right: 3, bottom: 3}` — compiled-in constants with no font, palette or environment input. Measured heights confirm it:
-
-| plugin | title bar height | at 10pt | at 16pt |
-| --- | --- | --- | --- |
-| `adwaita` | 49px (incl. 11px shadow) | 49 | 49 |
-| `bradient` | 30px | 30 | 30 |
-
-3px on the sides and bottom is what you get, and it is the right amount.
-
-**This library used to paint a thicker border of its own, just inside the window, to work around that. It was removed deliberately — do not add it back.** It was `bordered_body()`, and it cost every consumer a wrapper widget per window plus two ordering rules (it overwrote the window's `objectName` and its stylesheet); it made one app restructure its status display around it; and on Wayland the extra band rendered at the wrong thickness while the window was unfocused. The thin frame the decoration draws is what the design wants.
-
-**Nor is the title's point size a knob**, for the same kind of reason one level down. `QWaylandBradientDecoration::paint()` takes the painter's font and overwrites its size:
-
-```
-call   4980 <QPainter::font() const@plt>    ; the painter's font...
-call   49c0 <QFont::QFont(QFont const&)>    ; ...copied...
-mov    $0xe,%esi                            ; ...and 14px, compiled in
-call   47b0 <QFont::setPixelSize(int)@plt>
-```
-
-So 14 pixels it is, whatever point size the application font carries. Weight, stretch, family and italic all survive, because the plugin overwrites none of them — which is what `title_font_weight` and `title_font_stretch` reach. `title_font_stretch` is the only lever pointing at "bigger".
-
-**And the title's color does not change when the window loses focus** — not by default. That is `title_fg_inactive`, which defaults to the same white as `title_fg` rather than to a dimmed version of it. `bradient` paints the title from the palette's `Disabled` group whenever the window is not the active one, and on Wayland that includes the whole of an interactive move: grab the bar, and keyboard focus goes with the drag. A title that dims the instant the window is picked up reads as the window breaking rather than as a focus cue. Set `title_fg_inactive` to something dimmer to get the conventional look back.
-
-**The markdown viewer does not** render HTML, apply CSS, restyle what Qt rendered (no theme-aware link color, no code-block background — see §5 for why that is a decision), fetch anything over the network, offer a Forward button or a find-in-page. It renders local markdown files, and it is deliberately not a browser.
-
-## 2. Requirements and platform split
+## 2. Requirements
 
 - PyQt6 (≥ 6.6). No other dependency.
-- **Wayland only, in effect.** The title bar is colorable because Qt draws the decoration inside the application process, which happens because GNOME implements no server-side decorations for Wayland clients. Under X11 or any other platform the window manager draws the bar out of process and nothing here can reach it: `install()` returns without doing anything, and the app looks exactly as it would have without this library.
+- No platform requirement: nothing here depends on Wayland, X11 or the window manager.
 
 ## 3. Installation
 
@@ -93,73 +54,9 @@ windowchrome = { path = "../windowchrome", editable = true }
 
 A consumer that is itself not an installable package keeps its own `[tool.uv] package = false`; that governs the consumer and does not conflict with the source above.
 
-## 4. Integration checklist
-
-### 1. `configure()` — before `QApplication`
-
-```python
-import windowchrome
-from windowchrome import ChromeTheme
-
-APP_THEME = ChromeTheme(title_bg="#1369da")
-
-windowchrome.configure(APP_THEME)   # <- before the next line, always
-app = QApplication(sys.argv)
-```
-
-**Why the ordering matters:** `configure()` sets `QT_WAYLAND_DECORATION`, and the Wayland platform plugin reads that variable *inside the `QApplication` constructor* and never again. Called afterwards it does nothing at all, and the symptom is a gray title bar with no error anywhere.
-
-It uses `setdefault`, so an explicit `QT_WAYLAND_DECORATION` already in the environment still wins.
-
-### 2. `install()` — after `QApplication`, and after your own palette and font work
-
-```python
-app = QApplication(sys.argv)
-tune_palette(app)            # whatever the app does to its own palette
-app.setFont(app_font)        # ... and to its own default font
-windowchrome.install(app)    # <- after both, not before
-```
-
-**Why:** `install()` captures the body's surface color, text color and font at the moment it runs, then overwrites those palette roles — and the application font — with the title bar's. A palette or font changed afterwards is one it never saw, and `body_window_color()` will hand back a stale color.
-
-**An `app.setFont()` *after* `install()` is worse than merely unseen.** `QApplication::setFont(font)` with no class name clears the class-font table, which is where `install()` put the body font for every widget to inherit — so the body font stops being handed back and the whole application comes out in the title's weight. Set the app font first; `install()` will pick it up.
-
-It also warns (a `RuntimeWarning`) if `QT_WAYLAND_DECORATION` does not match the theme's `decoration` — i.e. if step 1 was skipped or ran too late.
-
-### 3. `body_window_color()` / `body_text_color()` — replace every palette read of `Window` and `WindowText`
-
-Anywhere the app reads `QApplication.palette()` for `Window` or `WindowText` to derive a body color, use the library's accessor instead:
-
-```python
-- window = QApplication.palette().color(QPalette.ColorRole.Window)
-+ window = windowchrome.body_window_color()
-
-- text = QApplication.palette().color(QPalette.ColorRole.WindowText)
-+ text = windowchrome.body_text_color()
-```
-
-Both matter, and `WindowText` is the easier one to miss: a muted or alpha-blended body text color derived from it comes out as the title bar's foreground — white, typically — and vanishes against the body. `Base`, `Highlight` and every other role are untouched and can still be read from the palette directly. See gotcha 3.
-
-Both accessors return a **copy**, so mutating what they hand back (`.setAlpha()`, say) is safe. It was not always: they used to return the captured color itself, and one app's `muted = body_text_color(); muted.setAlpha(180)` rewrote the color the library gives every widget, washing out the whole application's text.
-
-### 4. `body_font()` — for a `QPainter` on a pixmap, and nothing else
-
-Widgets need no change: the body font is handed back to them as a class font, so a widget's own `setFont()` and a stylesheet's `font-size` both keep working exactly as before. What does need changing is code that reads the *application* font directly, and in practice that means a painter over a pixmap or an image:
-
-```python
-- font = painter.font()        # a QPainter on a pixmap starts with the app font
-+ font = windowchrome.body_font()
-  font.setPointSize(...)
-  painter.setFont(font)
-```
-
-That default *is* the title font now — it is the very path the decoration takes to draw the title — so a glyph rendered into an icon comes out bold unless it starts here. Like the two color accessors, this returns a **copy**, so resizing what it hands back is safe. See gotcha 5 for the one other place the title font is briefly visible.
-
-That is the whole integration: three calls plus whatever `body_*` reads the app already had, no per-window work, and nothing about a window's own layout or stylesheet changes.
-
 ## 5. The markdown viewer
 
-Independent of everything above: no `configure()`, no `install()`, no ordering, and it works off Wayland. Two names do the whole job.
+No setup and no platform requirement. Two names do the whole job.
 
 ```python
 from windowchrome import show_markdown
@@ -242,146 +139,7 @@ Windows are modeless and kept in a module-level dict keyed by the resolved path,
 
 **A parented modeless dialog does not hold the application open.** It has a transient parent, so it is not a "primary" window and `quitOnLastWindowClosed` still fires — measured, the app quit with a help window visible. But that window *is* still on screen for as long as that takes, so a host should still call `close_markdown_windows()` from its main window's `closeEvent`. An *unparented* window is a different story and would keep the process alive.
 
-## 6. The gotchas
-
-Each of these was measured. They are what stop a future integrator from "fixing" the design.
-
-### 1. Giving a widget a stylesheet severs its palette inheritance
-
-`QStyleSheetStyle` resolves a palette for a styled widget out of the *application* palette and assigns it, so the widget stops inheriting from its parent — and everything beneath it inherits the severed one. A window is severed too, simply by being a window: a dialog or a popup resolves against the application palette however it is parented.
-
-**Measured:** setting the body palette on the main window alone left **22 widgets** wearing the title bar color. With the event filter `install()` puts on the application: **0**.
-
-The filter acts on `QEvent.Polish`, `QEvent.StyleChange` **and** `QEvent.PaletteChange`. Polish alone is one pass per widget and misses the subtree beneath a later-styled ancestor (a splitter styled after both its panes have been polished); StyleChange is what that repolish arrives as.
-
-`PaletteChange` is there because neither of the other two is late enough. **An application event filter runs before the receiver handles the event**, so on Polish the order is: the filter corrects the palette, and *then* `QWidget::event()` reaches `QStyleSheetStyle::polish()`, which re-derives one from the application palette and assigns it — overwriting the correction made moments earlier. `PaletteChange` is the event that assignment raises, which makes it the one trigger guaranteed to arrive after any palette is set, by anyone.
-
-The symptom that found it: **a `QComboBox` dropdown painted in the title bar's color.** Measured in a styled dialog — the popup view's `Window` role read correctly at every Polish and StyleChange the filter saw, and was the title bar's color once everything settled. A combo popup is where this surfaces because `QStyleSheetStyle` treats `QComboBox QAbstractItemView` as a styled sub-control and always assigns it a palette, whether or not the app wrote a rule for one.
-
-It cannot loop: `_apply_body_palette()` returns without writing when the colors are already right, so the filter's own `setPalette` re-enters it and stops. Measured re-entry depth: 3, bounded. That early return is load-bearing.
-
-**The symptom to recognise:** a widget wearing the title bar color *only while the window has focus*. Only the `Active` group is repurposed, so anything leaking reverts to the theme's gray the moment the window is defocused.
-
-### 2. Some widgets paint from the application palette, not their own
-
-The event filter above can only reach widgets that resolve a color *from their own palette*. An **unstyled** `QComboBox` popup does not: it paints its background from `QApplication.palette()` at paint time, so the drop-down opens in the title bar's color no matter what the filter did.
-
-Measured, and worth knowing how it was pinned down: with every widget in the popup reading `Window = <body color>`, the popup still rendered the title bar's blue — and changing *only* the application palette, with the filter removed so no widget palette moved, took the popup with it. That is what proves the paint follows the application palette rather than the widget's.
-
-A stylesheet breaks the tie. Any stylesheet on the combo or its view switches it to `QStyleSheetStyle`, which resolves from the widget palette instead — which is why this appears in one app and not another: **an app that merely pads its combo has already fixed this by accident.** `install()`'s filter writes the rule for popups that have no stylesheet of their own, and leaves a view the host has already styled alone.
-
-If you meet the same symptom on some other widget, this is the shape of it: check whether changing only the application palette moves it.
-
-### 3. Never derive a body color from `QApplication.palette()`
-
-The `Window` and `WindowText` roles carry the *title bar's* colors once `install()` has run, so a derived color comes out tinted — and, where it lightens or darkens what it read, wrong twice over. One host app's splitter handle did exactly this: it read the title bar blue and lightened it, painting the handle a *brighter* blue than the bar. Another computed its muted help text from `WindowText` and would have drawn it in the title bar's white. `body_window_color()` and `body_text_color()` are the fix and the rule.
-
-### 4. The decoration plugin choice is silent when wrong
-
-Qt ships exactly two decoration plugins and defaults to `adwaita`:
-
-| `QT_WAYLAND_DECORATION` | plugin loaded (from `/proc/self/maps`) |
-| --- | --- |
-| *(unset)* | `libadwaita.so` |
-| `bradient` | `libbradient.so` |
-| an unknown name | `libadwaita.so` — silent fallback, no error |
-
-`libadwaita.so` links **no `QPalette` symbol at all** (`nm -DC` confirms): its grays are compiled in and unreachable from application code. `libbradient.so` links `QPalette::brush()`, and disassembling `QWaylandBradientDecoration::paint()` shows **exactly three** call sites — `(Active, Window)`, `(Active, WindowText)`, `(Disabled, WindowText)` — re-read on every repaint rather than cached at construction. Those three roles are what this library repurposes, and why the body palette has to be handed back.
-
-### 5. The application font is the title bar's font
-
-There is no font on a Qt Wayland decoration to set. `bradient` paints the title with `QPainter::font()` over the window's backing store — a non-widget paint device, so that font is `QGuiApplication::font()`, plain and unqualified. Making the title bold therefore means making the *application* font bold, exactly as coloring the bar means repurposing `Window` and `WindowText`, and the body has to be handed its own font back.
-
-That handback is a **class font** — `app.setFont(body, "QWidget")` — not the polish-time filter the palette needs, and the difference is worth knowing: a class font is the default a widget *resolves against*, so a widget that set its own font keeps it and a stylesheet's `font-size` still merges on top, while a filter would have to overwrite a widget's font to place it and could not tell an explicit font from an inherited one. One entry covers everything, because `QApplicationPrivate::font(w)` matches a class font by `w->inherits(key)`. And unlike the palette, nothing leaks past it: `QStyleSheetStyle` resolves a font from the *parent widget* rather than from the application, which is precisely what it does not do for palettes.
-
-Two places still see the title font, and both are the mechanism showing through rather than a bug:
-
-- **A `QPainter` on a pixmap or image**, per step 4 of §4 — `body_font()` is the answer.
-- **A top-level widget, between its constructor and its first show.** `QWidget`'s constructor seeds a *window's* font from `QApplication::font()` with no widget argument; the class font only reaches it when the font is re-resolved, at polish. It is never painted with — but a window that measures `self.font()` in its own constructor measures the title font and sizes itself a little wide. `body_font()` again. A child widget is unaffected at every point.
-
-`tests/test_titlefont.py` pins all of it down, including the ordering rule, by calling the font half directly — which is the only part of the title bar that *is* testable off Wayland.
-
-## 7. How to verify an integration
-
-None of this is unit-testable — it is pixels and a plugin choice — so check it directly.
-
-**Which decoration actually loaded:**
-
-```python
-import re
-print(re.findall(r'/\S*(?:adwaita|bradient)\S*\.so',
-                 open('/proc/self/maps').read()))
-```
-
-Expect `libbradient.so`. `libadwaita.so` means `configure()` ran too late, or the decoration name is wrong.
-
-**Which plugin can read a palette at all:**
-
-```bash
-nm -DC /usr/lib/x86_64-linux-gnu/qt6/plugins/wayland-decoration-client/lib{adwaita,bradient}.so \
-  | grep -c QPalette
-```
-
-**Nothing leaked the title bar color:**
-
-```python
-leaked = [w for w in app.allWidgets()
-          if w.palette().color(QPalette.ColorGroup.Active,
-                               QPalette.ColorRole.Window).name()
-          == APP_THEME.title_bg]
-assert leaked == []
-```
-
-**Nothing leaked the title bar font** (which, unlike the color, only shows up on a widget that was never shown — see gotcha 5):
-
-```python
-title_weight = QApplication.font().weight()
-leaked = [w for w in app.allWidgets()
-          if w.isVisible() and w.font().weight() == title_weight
-          and w.font().weight() != windowchrome.body_font().weight()]
-assert leaked == []
-```
-
-**The colors reached the palette.** There is no way to sample the title bar's own pixels from inside the process — the decoration is drawn outside the widget tree, so `grab()` never sees it. What can be checked is the palette the decoration reads, and that the body did not go with it:
-
-```python
-import sys
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QPalette
-import windowchrome
-from yourapp.style import APP_THEME, tune_palette
-
-windowchrome.configure(APP_THEME)
-app = QApplication(sys.argv)
-tune_palette(app)
-windowchrome.install(app)
-
-p = app.palette()
-print("title bar reads:",
-      p.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Window).name(),
-      p.color(QPalette.ColorGroup.Active, QPalette.ColorRole.WindowText).name())
-print("body keeps:     ",
-      windowchrome.body_window_color().name(),
-      windowchrome.body_text_color().name())
-```
-
-The first line must be the theme's `title_bg`/`title_fg`; the second must be the colors the app had before `install()` ran. (Both come back identical off Wayland, where `install()` is a no-op — run this under a real session.)
-
-**By eye:** run the app. The title bar and the thin frame down the sides and along the bottom are the theme's color; nothing *inside* the window is.
-
 ## 8. Troubleshooting
-
-| Symptom | Cause |
-| --- | --- |
-| Gray title bar | `configure()` ran after `QApplication`, or `decoration` names a plugin Qt does not ship (it falls back to `adwaita` silently). Check `/proc/self/maps`. |
-| Gray title bar, no warning, not Wayland | Expected. The title bar is drawn out-of-process under X11 and nothing here can reach it. Check `app.platformName()`. |
-| A widget is colored like the title bar, but **only when focused** | A palette leak: `install()` was not called, or was called before the app's own palette tuning. Only the `Active` group is repurposed, which is why defocusing reverts it. |
-| A whole window is colored like the title bar | The same leak, on a window. `install()` puts an application-wide event filter on for exactly this; check it ran. |
-| A derived color (splitter, handle, hover) comes out tinted with the title bar | Something still reads `QApplication.palette()` for `Window`. Use `body_window_color()`. |
-| Muted/derived text is white and unreadable on the body | Something reads `QApplication.palette()` for `WindowText`. Use `body_text_color()`. |
-| A `QComboBox` dropdown, menu or other popup is painted like the title bar | Two different causes. A late palette assignment the filter did not catch — `PaletteChange` is a trigger for exactly this, check it is still in `_TRIGGERS`. Or a widget painting from the application palette rather than its own, which no palette fix can reach: see gotcha 2. |
-| A combo dropdown is right in one app and blue in another | The one that works styles its combo, which quietly switches it to `QStyleSheetStyle`. See gotcha 2. |
-| All the app's text is faintly washed out | Something mutated a color the accessors returned. They hand back copies now; if you add an accessor, copy in it too. |
 
 **The markdown viewer:**
 
@@ -409,7 +167,7 @@ apply_scrollbars(self.results)                       # a QAbstractScrollArea
 apply_scrollbars(self._text_edit, field_background)  # ... painted some other color
 ```
 
-Nothing to call before or after the `QApplication`, no platform requirement, and no relationship to the title bar. It is opt-in per scroll area rather than an application-wide stylesheet, because an application-wide one would sever palette inheritance across every widget in the app (gotcha 1) to change two.
+Nothing to call before or after the `QApplication`, and no platform requirement. It is opt-in per scroll area rather than an application-wide stylesheet, because an application-wide one would sever palette inheritance across every widget in the app to change two.
 
 Four things about it are deliberate, and each looks like something worth simplifying until you know why:
 
@@ -428,10 +186,6 @@ edit.setStyleSheet(f"background-color: {field.name()};")
 apply_scrollbars(edit, field)
 ```
 
-### Why this reads the palette directly
-
-This is the one place in the library that reads a color straight from `QApplication.palette()`, and gotcha 3 says not to. Gotcha 3 is about `Window` and `WindowText`, the two roles `install()` repurposes for the title bar — a body color derived from those has to come from `body_window_color()`/`body_text_color()` or it comes out tinted with the title bar. `Base` is not one of them and is never touched, so reading it here is correct, and routing it through the body accessors would be actively wrong.
-
 ---
 
 ## 10. Radio buttons
@@ -445,13 +199,13 @@ apply_radios(self._file_radio, self._sh_radio,
              base=field_background, point_size=UI_POINT_SIZE)
 ```
 
-Like the scroll bars (§9): nothing to call before or after the `QApplication`, no platform requirement, no relationship to the title bar, and opt-in per widget rather than an application-wide stylesheet that would sever palette inheritance everywhere (gotcha 1).
+Like the scroll bars (§9): nothing to call before or after the `QApplication`, no platform requirement, and opt-in per widget rather than an application-wide stylesheet that would sever palette inheritance everywhere.
 
 Three things about it are deliberate:
 
 - **The whole indicator has to be described.** Styling `::indicator` at all opts the button out of native drawing, so the circle, its ring and the checked state are all this stylesheet's problem. There is no "keep the native dot, just bigger".
 - **The checked state is a filled circle, not a ring with a dot in it.** A stylesheet element has one border, so a gap between the ring and an inner dot cannot be drawn without giving up the ring — and the ring is what makes the *unchecked* state visible at all. At `RADIO_INDICATOR_SIZE` (22px) a solid fill is unambiguous.
-- **The ring and the fill come from the palette's `Text`.** So the indicator reads as bright as the label beside it, and follows the desktop between a light theme and a dark one instead of pinning a gray that suits one of them. This is the same direct palette read §9 makes, and for the same reason it is not the gotcha-3 mistake: `install()` repurposes `Window` and `WindowText`, and `Text`/`Base` are untouched.
+- **The ring and the fill come from the palette's `Text`.** So the indicator reads as bright as the label beside it, and follows the desktop between a light theme and a dark one instead of pinning a gray that suits one of them.
 
 `base` is the color painted inside an unchecked circle — the same argument, with the same reasoning, as the scroll bars' `base` (§9). It defaults to the palette's `Base`; a host whose dialog fields are painted some color derived from `Base` passes that instead. `point_size` sets the label's font size, and is left to the widget's own font when omitted.
 
@@ -468,7 +222,7 @@ self.edit_toggle = ToggleSwitch(self, on_color=HIGHLIGHT_BG)
 self.edit_toggle.toggled.connect(self._handle_edit_toggled)
 ```
 
-Like the scroll bars (§9) and the radio buttons (§10): nothing to call before or after the `QApplication`, no platform requirement, and no relationship to the title bar.
+Like the scroll bars (§9) and the radio buttons (§10): nothing to call before or after the `QApplication`, and no platform requirement.
 
 Three things about it are worth knowing:
 
@@ -476,7 +230,7 @@ Three things about it are worth knowing:
 - **It is still the button it inherits from.** `isChecked()`, `setChecked()`, `toggle()`, `toggled`/`clicked`, Space to flip it, and the focus and tab behavior are all `QAbstractButton`'s. Only the painting is this library's, so a host swapping a `QCheckBox` for one changes the constructor and nothing else. It has no label of its own — put a `QLabel` beside it, which is what a settings row wants anyway.
 - **Its size is fixed, not laid out.** `TOGGLE_WIDTH`×`TOGGLE_HEIGHT` (40×22) by default, overridable per switch with `width=`/`height=`. A layout that stretched the track would not stretch the knob's travel with it, and the travel is what reads as a switch.
 
-`on_color` is the track while checked — the host's accent, and the one argument worth passing; it defaults to the palette's `Highlight`. `off_color` (`#888888`) and `knob_color` (`#ffffff`) are pinned rather than taken from the palette: `Window` is the title bar's under `install()`, and `Base` is the pane the switch is sitting on, so a switch painted from either would disappear into its background. Both are overridable. All three take a `QColor` or anything `QColor` accepts, since a host's accent is usually already a `"#rrggbb"` constant.
+`on_color` is the track while checked — the host's accent, and the one argument worth passing; it defaults to the palette's `Highlight`. `off_color` (`#888888`) and `knob_color` (`#ffffff`) are pinned rather than taken from the palette: `Base` is the pane the switch is sitting on, so a switch painted from it would disappear into its background. Both are overridable. All three take a `QColor` or anything `QColor` accepts, since a host's accent is usually already a `"#rrggbb"` constant.
 
 ---
 
@@ -490,7 +244,7 @@ from windowchrome import apply_checkboxes
 apply_checkboxes(self.wrap_check, self.archive_check)
 ```
 
-Like the scroll bars (§9), the radio buttons (§10) and the toggle switch (§11): nothing to call before or after the `QApplication`, no platform requirement, no relationship to the title bar, and opt-in per widget rather than an application-wide style.
+Like the scroll bars (§9), the radio buttons (§10) and the toggle switch (§11): nothing to call before or after the `QApplication`, no platform requirement, and opt-in per widget rather than an application-wide style.
 
 Three things about it are deliberate:
 

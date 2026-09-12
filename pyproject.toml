@@ -1,7 +1,7 @@
 [project]
 name = "windowchrome"
 version = "0.1.0"
-description = "Colored title bar and window border for PyQt6 apps on Linux/Wayland."
+description = "Shared widget looks for PyQt6 apps on Linux: markdown viewer, wide scroll bars, radio, check box and toggle switch."
 requires-python = ">=3.10"
 dependencies = ["PyQt6>=6.6"]
 
