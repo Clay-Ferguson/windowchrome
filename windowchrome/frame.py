@@ -24,10 +24,17 @@ How it fits together, and why this shape:
   `close()`, `setWindowTitle()`, the window state and, for a QDialog,
   `exec()`/`accept()` all belong to the top-level widget.
 - **The border is a child widget, not the window's own painting.** A plain
-  widget that paints the ring and nothing else, transparent to the mouse
-  and kept at the bottom of the stacking order, so the app's widgets cover
-  it everywhere except the margin. Painting it any other way would mean
-  subclassing the app's window or changing its palette.
+  widget that paints the window's background and the ring round it,
+  transparent to the mouse and kept at the bottom of the stacking order, so
+  the app's widgets cover it everywhere except the margin. Painting it any
+  other way would mean subclassing the app's window or changing its palette.
+- **The corners are rounded by painting, on a translucent window.** The
+  window gets `WA_TranslucentBackground`, so Qt no longer fills its
+  background and the pixels outside the curve stay transparent; the border
+  widget paints the background in its place, as a rounded rectangle, and the
+  title bar rounds its own top corners to match. A `setMask()` cannot do
+  this: a mask is one bit per pixel, so its curve is jagged, and on Wayland a
+  window with no alpha shows the masked-off corners black.
 - **The resize zones are an event filter on the window's QWindow.** Every
   mouse event for a top-level window reaches its QWindow before Qt hands it
   to whichever child widget is under the pointer, so a filter there sees the
@@ -54,13 +61,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt
-from PyQt6.QtGui import QColor, QCursor, QFont, QPainter, QPen, QPolygon
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QRectF, QSize, Qt
+from PyQt6.QtGui import (
+    QColor,
+    QCursor,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPalette,
+    QPen,
+    QPolygon,
+)
 from PyQt6.QtWidgets import QAbstractButton, QApplication, QDialog, QWidget
 
 # The visible border around the whole window, drawn inside it. GTK draws the
 # same 2px as a 1px border plus a 1px box-shadow; here it is one solid ring.
 FRAME_BORDER_WIDTH = 2
+
+# The radius of the window's corners, on the outside of the border: a little
+# rounder than GNOME's own windows (12). Square while maximized or
+# fullscreen, where there is no border either.
+FRAME_CORNER_RADIUS = 16
 
 # How far in from the window's outer edge a press starts a resize. Wider than
 # the border, which alone would be a 2px target; the rest of the zone lies
@@ -78,9 +99,10 @@ TITLE_LINE_WIDTH = 2
 
 # The title bar's height is the title font's line height plus this much, and
 # never less than TITLE_BAR_MIN_HEIGHT — sized from the font so a large
-# desktop font doesn't crowd the bar.
-TITLE_BAR_PADDING = 20
-TITLE_BAR_MIN_HEIGHT = 36
+# desktop font doesn't crowd the bar. With Ubuntu's default font (Ubuntu Sans
+# 11, an 18px line) that is 46px, the height of Ubuntu's own header bars.
+TITLE_BAR_PADDING = 28
+TITLE_BAR_MIN_HEIGHT = 44
 
 # Each caption button is a rectangle the full height of the bar, this wide,
 # with its glyph drawn GLYPH_SIZE across in the middle of it.
@@ -166,6 +188,19 @@ def edge_cursor(edges: Qt.Edge) -> Qt.CursorShape:
     return Qt.CursorShape.SizeVerCursor
 
 
+def _is_framed(window: QWidget) -> bool:
+    """False while maximized or fullscreen: no border, no resize zones,
+    square corners."""
+    return not window.windowState() & (
+        Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen
+    )
+
+
+def _corner_radius(window: QWidget) -> int:
+    """The outer radius of the window's corners right now."""
+    return FRAME_CORNER_RADIUS if _is_framed(window) else 0
+
+
 class CaptionButton(QAbstractButton):
     """One of the title bar's minimize, maximize and close buttons.
 
@@ -214,8 +249,14 @@ class CaptionButton(QAbstractButton):
         painter = QPainter(self)
         fill = self.background()
         if fill is not None:
-            # Stop short of the bar's bottom line, which runs under the buttons.
-            painter.fillRect(self.rect().adjusted(0, 0, 0, -TITLE_LINE_WIDTH), fill)
+            # Stop short of the bar's bottom line, which runs under the buttons,
+            # and inside the bar's rounded corner: the close button sits in it.
+            rect = QPainterPath()
+            rect.addRect(QRectF(self.rect().adjusted(0, 0, 0, -TITLE_LINE_WIDTH)))
+            shape = self._title_bar.shape().translated(-self.x(), -self.y())
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.fillPath(rect.intersected(shape), fill)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
         if self.kind == self.CLOSE and fill is not None:
             glyph = QColor("#ffffff")
@@ -369,9 +410,23 @@ class TitleBar(QWidget):
             button.setGeometry(x, 0, CAPTION_BUTTON_WIDTH, self.height())
         super().resizeEvent(event)
 
+    def shape(self) -> QPainterPath:
+        """The bar's outline: its rectangle with the top corners rounded to
+        sit inside the window's border. The rounded rectangle runs on below
+        the bar, so its bottom corners are cut off and stay square."""
+        outer = _corner_radius(cast(QWidget, self.window()))
+        radius = max(0, outer - FRAME_BORDER_WIDTH)
+        path = QPainterPath()
+        path.addRoundedRect(
+            QRectF(0, 0, self.width(), self.height() + radius), radius, radius
+        )
+        return path
+
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), self.background())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillPath(self.shape(), self.background())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         painter.fillRect(
             0,
             self.height() - TITLE_LINE_WIDTH,
@@ -411,9 +466,13 @@ class TitleBar(QWidget):
 
 
 class _Border(QWidget):
-    """The ring around the window: a full-window child that paints only its
-    outer `FRAME_BORDER_WIDTH` pixels, invisible to the mouse and kept below
-    every other child."""
+    """The window's background and the ring around it: a full-window child,
+    invisible to the mouse and kept below every other child.
+
+    The window is translucent (see the module docstring), so Qt fills no
+    background for it and this is what does. It therefore stays shown in
+    every window state — hidden, it would leave the window see-through —
+    and only the ring and the rounding go while maximized or fullscreen."""
 
     def __init__(self, window: QWidget, color: str) -> None:
         super().__init__(window)
@@ -422,12 +481,23 @@ class _Border(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        color = QColor(self.color)
-        w, h, b = self.width(), self.height(), FRAME_BORDER_WIDTH
-        painter.fillRect(0, 0, w, b, color)
-        painter.fillRect(0, h - b, w, b, color)
-        painter.fillRect(0, b, b, h - 2 * b, color)
-        painter.fillRect(w - b, b, b, h - 2 * b, color)
+        background = self.palette().color(QPalette.ColorRole.Window)
+        radius = _corner_radius(cast(QWidget, self.window()))
+        if not radius:
+            painter.fillRect(self.rect(), background)
+            return
+        # The ring is the outer rounded rectangle in the border color, with
+        # the inner one, its radius smaller by the border's width so the ring
+        # keeps one width round the curve, painted over it in the background.
+        b = FRAME_BORDER_WIDTH
+        outer, inner = QPainterPath(), QPainterPath()
+        outer.addRoundedRect(QRectF(self.rect()), radius, radius)
+        inner.addRoundedRect(
+            QRectF(self.rect()).adjusted(b, b, -b, -b), radius - b, radius - b
+        )
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillPath(outer, QColor(self.color))
+        painter.fillPath(inner, background)
 
 
 class WindowFrame(QObject):
@@ -451,6 +521,9 @@ class WindowFrame(QObject):
         self._resizing = False
 
         was_visible = window.isVisible()
+        # Before the flag change, which recreates the native window: it must
+        # be created with an alpha channel for the corners to be transparent.
+        window.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         window.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
 
         self.border = _Border(window, colors.border)
@@ -483,10 +556,7 @@ class WindowFrame(QObject):
 
     def is_framed(self) -> bool:
         """False while maximized or fullscreen: no border, no resize zones."""
-        state = self._window.windowState()
-        return not state & (
-            Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen
-        )
+        return _is_framed(self._window)
 
     def _update_geometry(self) -> None:
         window = self._window
@@ -498,8 +568,8 @@ class WindowFrame(QObject):
         window.setContentsMargins(border, border + title, border, border)
         self.title_bar.setVisible(not fullscreen)
         self.title_bar.setGeometry(border, border, window.width() - 2 * border, title)
-        self.border.setVisible(bool(border))
         self.border.setGeometry(0, 0, window.width(), window.height())
+        self.border.update()
         self.title_bar.update()
 
     def _hook_window(self) -> None:

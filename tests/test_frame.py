@@ -61,7 +61,8 @@ def framed(shown, window=None, **kwargs):
 
 
 def pixel(widget, x, y):
-    return QColor(widget.grab().toImage().pixel(x, y))
+    # pixelColor(), not QColor(pixel()): QColor built from a QRgb drops its alpha.
+    return widget.grab().toImage().pixelColor(x, y)
 
 
 class Recorder(QWidget):
@@ -207,7 +208,7 @@ def test_maximized_drops_the_border_and_keeps_the_title_bar(qapp, shown):
     window.showMaximized()
     margins = window.contentsMargins()
     assert (margins.left(), margins.top()) == (0, frame.title_bar.height())
-    assert not frame.border.isVisible()
+    assert pixel(window, 0, 150) != QColor(frame.colors.border)
     assert frame.title_bar.isVisible()
     assert frame.resizable_edges() == NONE
 
@@ -225,7 +226,7 @@ def test_restoring_brings_the_frame_back(qapp, shown):
     window.showMaximized()
     window.showNormal()
     assert window.contentsMargins().left() == B
-    assert frame.border.isVisible()
+    assert pixel(window, 0, 150) == QColor(frame.colors.border)
 
 
 # -- buttons ----------------------------------------------------------------
@@ -338,10 +339,10 @@ def test_active_colors(qapp, shown, qtbot):
     qtbot.waitUntil(window.isActiveWindow)
     bar = frame.title_bar
     colors = frame.colors
-    assert pixel(window, B + 4, B + 4) == QColor(colors.title_bg)
-    assert pixel(window, B + 4, B + bar.height() - 1) == QColor(colors.title_line)
-    assert pixel(window, B + 4, B + bar.height() - TITLE_LINE_WIDTH) == QColor(colors.title_line)
-    assert pixel(window, B + 4, B + bar.height() - TITLE_LINE_WIDTH - 1) == QColor(colors.title_bg)
+    assert pixel(window, B + 40, B + 4) == QColor(colors.title_bg)
+    assert pixel(window, B + 40, B + bar.height() - 1) == QColor(colors.title_line)
+    assert pixel(window, B + 40, B + bar.height() - TITLE_LINE_WIDTH) == QColor(colors.title_line)
+    assert pixel(window, B + 40, B + bar.height() - TITLE_LINE_WIDTH - 1) == QColor(colors.title_bg)
 
 
 def test_inactive_colors(qapp, shown, qtbot):
@@ -351,22 +352,36 @@ def test_inactive_colors(qapp, shown, qtbot):
     other.activateWindow()
     qtbot.waitUntil(lambda: not window.isActiveWindow())
     colors = frame.colors
-    assert pixel(window, B + 4, B + 4) == QColor(colors.inactive_title_bg)
-    assert pixel(window, B + 4, B + frame.title_bar.height() - 1) == QColor(
+    assert pixel(window, B + 40, B + 4) == QColor(colors.inactive_title_bg)
+    assert pixel(window, B + 40, B + frame.title_bar.height() - 1) == QColor(
         colors.inactive_title_line
     )
 
 
-@pytest.mark.parametrize(("x", "y"), [(0, 150), (1, 150), (399, 150), (200, 299), (0, 0)])
+@pytest.mark.parametrize(("x", "y"), [(0, 150), (1, 150), (399, 150), (200, 299), (200, 0)])
 def test_the_border_is_drawn_all_round(qapp, shown, x, y):
     window, frame = framed(shown)
     assert pixel(window, x, y) == QColor(frame.colors.border)
 
 
+@pytest.mark.parametrize(("x", "y"), [(0, 0), (399, 0), (0, 299), (399, 299)])
+def test_the_corners_are_rounded(qapp, shown, x, y):
+    window, _ = framed(shown)
+    assert window.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    assert pixel(window, x, y).alpha() == 0
+
+
+def test_the_corners_are_square_while_maximized(qapp, shown):
+    window, _ = framed(shown)
+    window.showMaximized()
+    assert pixel(window, 0, 0).alpha() == 255
+    assert pixel(window, 0, window.height() - 1).alpha() == 255
+
+
 def test_colors_can_be_overridden(qapp, shown, qtbot):
     window, _ = framed(shown, colors=FrameColors(title_bg="#ff0000", border="#00ff00"))
     qtbot.waitUntil(window.isActiveWindow)
-    assert pixel(window, B + 4, B + 4) == QColor("#ff0000")
+    assert pixel(window, B + 40, B + 4) == QColor("#ff0000")
     assert pixel(window, 0, 150) == QColor("#00ff00")
 
 
@@ -374,7 +389,7 @@ def test_set_colors_repaints(qapp, shown, qtbot):
     window, frame = framed(shown)
     qtbot.waitUntil(window.isActiveWindow)
     frame.set_colors(FrameColors(title_bg="#0000ff"))
-    assert pixel(window, B + 4, B + 4) == QColor("#0000ff")
+    assert pixel(window, B + 40, B + 4) == QColor("#0000ff")
 
 
 def test_the_frame_does_not_keep_its_window_alive(qapp):

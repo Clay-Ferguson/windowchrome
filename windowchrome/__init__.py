@@ -46,6 +46,7 @@ from .checkboxes import CHECKBOX_SCALE, LargeIndicatorStyle, apply_checkboxes
 from .frame import (
     CAPTION_BUTTON_WIDTH,
     FRAME_BORDER_WIDTH,
+    FRAME_CORNER_RADIUS,
     RESIZE_CORNER_LENGTH,
     RESIZE_GRAB_WIDTH,
     TITLE_BAR_MIN_HEIGHT,
@@ -85,6 +86,7 @@ __all__ = [
     "CAPTION_BUTTON_WIDTH",
     "CHECKBOX_SCALE",
     "FRAME_BORDER_WIDTH",
+    "FRAME_CORNER_RADIUS",
     "MIN_SCROLLBAR_EXTENT",
     "RADIO_BORDER_WIDTH",
     "RADIO_INDICATOR_SIZE",

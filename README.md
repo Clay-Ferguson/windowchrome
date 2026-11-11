@@ -279,7 +279,7 @@ Where a check box is the wrong *shape* rather than the wrong size — an on/off 
 
 ## 13. The window frame
 
-The system title bar on GNOME under Wayland is drawn by a Qt decoration plugin (`adwaita` or `bradient`) with no color setting, and on a dark theme it comes out as dark as the window's own background, so nothing separates the window from its contents. `apply_frame()` hides it and draws one of the app's own: a title bar with the title centered and minimize, maximize and close buttons on the right, and a 2px border round the whole window.
+The system title bar on GNOME under Wayland is drawn by a Qt decoration plugin (`adwaita` or `bradient`) with no color setting, and on a dark theme it comes out as dark as the window's own background, so nothing separates the window from its contents. `apply_frame()` hides it and draws one of the app's own: a title bar with the title centered and minimize, maximize and close buttons on the right, and a 2px border round the whole window, with rounded corners.
 
 ```python
 from windowchrome import apply_frame
@@ -305,6 +305,7 @@ Like §9–§12: nothing to call before or after the `QApplication`, no platform
 | Title and button glyphs | `#ffffff` | `#8fa1b8` |
 | 2px line along the bar's bottom, inside it | `#2c6dbc` | `#1c3d5a` |
 | Border, 2px | `#777777` | `#777777` |
+| Corners | 16px radius | 16px radius |
 
 These are `FrameColors`' defaults, taken from a GTK theme's CSS so a Qt window's frame matches the GTK apps beside it. Inactive is GTK's `:backdrop` — another window has focus — and follows Qt's window activation. The buttons light to `#2d5282` under the mouse and `#2c6dbc` while pressed; close turns red (`#c01c28`, pressed `#a51d2d`) with a white glyph. Override any of them:
 
@@ -313,15 +314,15 @@ apply_frame(window, FrameColors(title_bg="#3b2a1e", title_line="#bc6d2c"))
 frame.set_colors(...)      # later, on the WindowFrame apply_frame returned
 ```
 
-The title bar's height comes from its (bold) font, at least `TITLE_BAR_MIN_HEIGHT` (36). The title is centered in the space left of the buttons and elided if it doesn't fit, and follows `setWindowTitle()`. A `QDialog` (so a `QMessageBox` too) gets only a close button, as a dialog does on GNOME; `minimize=`/`maximize=` override that either way. Without a maximize button, double-clicking the bar does nothing.
+The title bar's height comes from its (bold) font, at least `TITLE_BAR_MIN_HEIGHT` (44); with Ubuntu's default font it is 46px, the height of Ubuntu's own header bars. The title is centered in the space left of the buttons and elided if it doesn't fit, and follows `setWindowTitle()`. A `QDialog` (so a `QMessageBox` too) gets only a close button, as a dialog does on GNOME; `minimize=`/`maximize=` override that either way. Without a maximize button, double-clicking the bar does nothing.
 
 | Action | Result |
 |---|---|
 | Drag the title bar | Moves the window (`QWindow.startSystemMove()`), once the mouse has moved the desktop's drag distance |
 | Double-click the title bar | Maximize / restore |
 | Drag within 8px of an edge, 16px of a corner | Resizes (`QWindow.startSystemResize()`), with the matching cursor |
-| Maximized | No border, no resize zones; the title bar stays, and the maximize button shows a restore glyph |
-| Fullscreen | No border, no resize zones, no title bar |
+| Maximized | No border, no resize zones, square corners; the title bar stays, and the maximize button shows a restore glyph |
+| Fullscreen | No border, no resize zones, square corners, no title bar |
 
 ### How it is built, and why this way
 
@@ -329,7 +330,8 @@ Everything is attached to the one window it was handed. There is no event filter
 
 - **The window is made frameless** with `Qt.WindowType.FramelessWindowHint`, so no decoration plugin draws anything and nothing here depends on how one works inside.
 - **The window stays the window, and the frame lives inside it.** `apply_frame()` sets the window's own contents margins: `FRAME_BORDER_WIDTH` (2) on every side, plus the title bar's height on top. Qt lays a layout out inside its widget's contents rectangle, so the app's layout — a `QMainWindow`'s menu bar, or a menu bar given to `QLayout.setMenuBar()` — lands below the title bar and inside the border with no change to the app's code. The title bar is a child widget placed in the top margin, outside the layout.
-- **The border is a child widget, not the window's painting.** It covers the whole window, paints only the outer 2px, is transparent to the mouse, and is kept at the bottom of the stacking order, so the app's widgets cover it everywhere but the margin.
+- **The border is a child widget, not the window's painting.** It covers the whole window, paints the window's background and the 2px ring round it, is transparent to the mouse, and is kept at the bottom of the stacking order, so the app's widgets cover it everywhere but the margin.
+- **The corners are rounded by painting, on a translucent window.** `apply_frame()` gives the window `WA_TranslucentBackground` (that window only), so Qt stops filling its background and the pixels outside the curve stay transparent for the compositor to show the desktop through. The border widget paints the background in its place, as a rectangle whose corners are rounded to `FRAME_CORNER_RADIUS` (16px; GNOME's own windows use 12), and stays shown in every window state for that reason; the title bar, and a caption button's hover fill, round their top corners to sit inside it. It is still one buffer per window painted in the usual order — only the alpha channel, and who fills the background, are new.
 - **The resize zones are an event filter on the window's `QWindow`.** Every mouse event for a top-level window reaches its `QWindow` before Qt hands it to the child widget under the pointer, so a filter there sees an edge even where the app's tree view or scroll bar runs up to it — a filter on the frame's own widgets would see nothing there. In the zone it sets the resize cursor and swallows the event, so the child under it sees neither the moves nor the press and release; outside it, events pass through untouched. It is installed on the first `Show`, because a widget has no `QWindow` until then.
 
 What the alternatives cost:
@@ -345,7 +347,14 @@ What the alternatives cost:
 - **The button glyphs are painted, not icons.** Yaru ships only a close icon. Adwaita ships all four, but only as dark symbolic SVGs, which need Qt's SVG plugin to load at all (the `libqt6svg6` trap) and would then have to be recolored for this bar, for the inactive state and for the close button's hover. Each glyph is one to four 1px strokes in the color the state calls for — sharp at any scale factor, with no files.
 - **Nothing in the frame holds a reference to its window.** The frame finds the window as its parent, and the buttons call the title bar's own methods rather than being connected to `window.close` and friends. A reference back would put the window in a reference cycle, so it would be freed whenever Python's cycle collector next ran instead of when its last reference went — measured, in the middle of painting the title bar, which crashed. `test_the_frame_does_not_keep_its_window_alive` is the guard.
 - **The window's contents margins belong to the frame.** A host that sets them on the window itself is overwritten on the next resize. Margins on the window's *layout* are untouched and still apply inside the frame.
+- **Translucency, not `setMask()`.** A mask is one bit per pixel, so its curve is jagged, and on Wayland a window without an alpha channel shows the masked-off corners black. Painting the shape on a translucent window is antialiased and needs nothing from the compositor beyond the alpha blending it does for every GTK window's corners.
 - **No drop shadow.** GNOME draws none round an app-drawn frame, and faking one needs a translucent margin round the window. Qt has no public API to tell a Wayland compositor that margin is not part of the window, so maximizing and tiling would leave a visible gap. The border does the job.
+
+### What the rounded corners ask of a host
+
+- **Don't give a framed window a background of its own** — a stylesheet `background` on the window itself, or `setAutoFillBackground(True)`. Either paints the whole rectangle, square corners included. The frame paints the window's `Window` palette color for you; set the palette if you want another one.
+- **Content with an opaque background that runs into a bottom corner needs a few pixels of layout margin** — about 5px past the border clears the curve. A child flush against the border paints square over it. Transparent children (labels, a layout's empty space) need nothing.
+- **A window tiled to half the screen keeps its rounded corners.** Qt exposes no tiled state on Wayland, so only maximized and fullscreen square them.
 
 ### What is lost against the system title bar
 
@@ -355,4 +364,4 @@ File dialogs that Qt hands to the desktop (the GTK or portal file chooser) belon
 
 ### Testing it
 
-What a test can reach is checked in `tests/test_frame.py`: `resize_edges()` (pure geometry) and `edge_cursor()`; where the frame puts the app's layout in each window state; which buttons there are and what they do; the painted colors, active and inactive; and that the `QWindow` filter swallows events in the zone and passes them through elsewhere. `startSystemMove()`/`startSystemResize()` are only checked for being called with the right edges — under `QT_QPA_PLATFORM=offscreen` nothing moves a window — so dragging, resizing and snapping have to be tried by hand on a real desktop.
+What a test can reach is checked in `tests/test_frame.py`: `resize_edges()` (pure geometry) and `edge_cursor()`; where the frame puts the app's layout in each window state; which buttons there are and what they do; the painted colors, active and inactive; transparent corners, square while maximized; and that the `QWindow` filter swallows events in the zone and passes them through elsewhere. `startSystemMove()`/`startSystemResize()` are only checked for being called with the right edges — under `QT_QPA_PLATFORM=offscreen` nothing moves a window — so dragging, resizing and snapping have to be tried by hand on a real desktop.
