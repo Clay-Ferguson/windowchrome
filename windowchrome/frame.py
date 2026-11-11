@@ -31,8 +31,9 @@ How it fits together, and why this shape:
 - **The corners are rounded by painting, on a translucent window.** The
   window gets `WA_TranslucentBackground`, so Qt no longer fills its
   background and the pixels outside the curve stay transparent; the border
-  widget paints the background in its place, as a rounded rectangle, and the
-  title bar rounds its own top corners to match. A `setMask()` cannot do
+  widget paints the background in its place, as a rectangle with its top
+  corners rounded, and the title bar rounds its own top corners to match.
+  The bottom corners stay square. A `setMask()` cannot do
   this: a mask is one bit per pixel, so its curve is jagged, and on Wayland a
   window with no alpha shows the masked-off corners black.
 - **The resize zones are an event filter on the window's QWindow.** Every
@@ -78,9 +79,10 @@ from PyQt6.QtWidgets import QAbstractButton, QApplication, QDialog, QWidget
 # same 2px as a 1px border plus a 1px box-shadow; here it is one solid ring.
 FRAME_BORDER_WIDTH = 2
 
-# The radius of the window's corners, on the outside of the border: a little
-# rounder than GNOME's own windows (12). Square while maximized or
-# fullscreen, where there is no border either.
+# The radius of the window's top corners, on the outside of the border: a
+# little rounder than GNOME's own windows (12). The bottom corners are always
+# square, and the top ones too while maximized or fullscreen, where there is
+# no border either.
 FRAME_CORNER_RADIUS = 16
 
 # How far in from the window's outer edge a press starts a resize. Wider than
@@ -197,8 +199,25 @@ def _is_framed(window: QWidget) -> bool:
 
 
 def _corner_radius(window: QWidget) -> int:
-    """The outer radius of the window's corners right now."""
+    """The outer radius of the window's top corners right now."""
     return FRAME_CORNER_RADIUS if _is_framed(window) else 0
+
+
+def _top_rounded_rect(rect: QRectF, radius: float) -> QPainterPath:
+    """`rect` with its top two corners rounded to `radius` and its bottom
+    two square: the window's outline. Drawn out rather than a rounded
+    rectangle clipped, so the straight bottom edge has no seam to show."""
+    left, top, right, bottom = rect.left(), rect.top(), rect.right(), rect.bottom()
+    diameter = 2 * radius
+    path = QPainterPath()
+    path.moveTo(left, bottom)
+    path.lineTo(left, top + radius)
+    path.arcTo(QRectF(left, top, diameter, diameter), 180, -90)
+    path.lineTo(right - radius, top)
+    path.arcTo(QRectF(right - diameter, top, diameter, diameter), 90, -90)
+    path.lineTo(right, bottom)
+    path.closeSubpath()
+    return path
 
 
 class CaptionButton(QAbstractButton):
@@ -486,15 +505,14 @@ class _Border(QWidget):
         if not radius:
             painter.fillRect(self.rect(), background)
             return
-        # The ring is the outer rounded rectangle in the border color, with
-        # the inner one, its radius smaller by the border's width so the ring
-        # keeps one width round the curve, painted over it in the background.
+        # The ring is the outer outline in the border color, with the inner
+        # one, its radius smaller by the border's width so the ring keeps one
+        # width round the curve, painted over it in the background. Only the
+        # top corners curve; the bottom two are square, so the ring meets
+        # them as a plain right angle.
         b = FRAME_BORDER_WIDTH
-        outer, inner = QPainterPath(), QPainterPath()
-        outer.addRoundedRect(QRectF(self.rect()), radius, radius)
-        inner.addRoundedRect(
-            QRectF(self.rect()).adjusted(b, b, -b, -b), radius - b, radius - b
-        )
+        outer = _top_rounded_rect(QRectF(self.rect()), radius)
+        inner = _top_rounded_rect(QRectF(self.rect()).adjusted(b, b, -b, -b), radius - b)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillPath(outer, QColor(self.color))
         painter.fillPath(inner, background)

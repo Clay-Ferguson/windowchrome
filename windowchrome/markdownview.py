@@ -220,7 +220,7 @@ class MarkdownView(QTextBrowser):
 
     # -- images -------------------------------------------------------------
 
-    def loadResource(self, rtype: int, name: QUrl):  # noqa: N802 - Qt's name
+    def loadResource(self, rtype: int, name: QUrl): 
         """Hand the layout an image that already fits.
 
         Qt does not read image files itself: it asks for them here, during

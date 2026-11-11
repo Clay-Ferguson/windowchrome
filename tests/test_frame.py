@@ -364,11 +364,19 @@ def test_the_border_is_drawn_all_round(qapp, shown, x, y):
     assert pixel(window, x, y) == QColor(frame.colors.border)
 
 
-@pytest.mark.parametrize(("x", "y"), [(0, 0), (399, 0), (0, 299), (399, 299)])
-def test_the_corners_are_rounded(qapp, shown, x, y):
+@pytest.mark.parametrize(("x", "y"), [(0, 0), (399, 0)])
+def test_the_top_corners_are_rounded(qapp, shown, x, y):
     window, _ = framed(shown)
     assert window.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     assert pixel(window, x, y).alpha() == 0
+
+
+@pytest.mark.parametrize(("x", "y"), [(0, 299), (399, 299), (1, 298), (398, 298)])
+def test_the_bottom_corners_are_square(qapp, shown, x, y):
+    """The ring runs right into both bottom corners, its full 2px, with no
+    curve cut out of it."""
+    window, frame = framed(shown)
+    assert pixel(window, x, y) == QColor(frame.colors.border)
 
 
 def test_the_corners_are_square_while_maximized(qapp, shown):

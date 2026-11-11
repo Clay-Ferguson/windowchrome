@@ -57,7 +57,7 @@ class LargeIndicatorStyle(QProxyStyle):
         super().__init__()
         self._scale = scale
 
-    def pixelMetric(self, metric, option=None, widget=None):  # noqa: N802 (Qt)
+    def pixelMetric(self, metric, option=None, widget=None):  
         size = super().pixelMetric(metric, option, widget)
         if metric in (
             QStyle.PixelMetric.PM_IndicatorWidth,

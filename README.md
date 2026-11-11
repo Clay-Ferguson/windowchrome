@@ -289,7 +289,7 @@ Where a check box is the wrong *shape* rather than the wrong size — an on/off 
 
 ## 13. The window frame
 
-The system title bar on GNOME under Wayland is drawn by a Qt decoration plugin (`adwaita` or `bradient`) with no color setting, and on a dark theme it comes out as dark as the window's own background, so nothing separates the window from its contents. `apply_frame()` hides it and draws one of the app's own: a title bar with the title centered and minimize, maximize and close buttons on the right, and a 2px border round the whole window, with rounded corners.
+The system title bar on GNOME under Wayland is drawn by a Qt decoration plugin (`adwaita` or `bradient`) with no color setting, and on a dark theme it comes out as dark as the window's own background, so nothing separates the window from its contents. `apply_frame()` hides it and draws one of the app's own: a title bar with the title centered and minimize, maximize and close buttons on the right, and a 2px border round the whole window, with rounded top corners and square bottom ones.
 
 ```python
 from windowchrome import apply_frame
@@ -315,7 +315,8 @@ Like §9–§12: nothing to call before or after the `QApplication`, no platform
 | Title and button glyphs | `#ffffff` | `#8fa1b8` |
 | 2px line along the bar's bottom, inside it | `#2c6dbc` | `#1c3d5a` |
 | Border, 2px | `#777777` | `#777777` |
-| Corners | 16px radius | 16px radius |
+| Top corners | 16px radius | 16px radius |
+| Bottom corners | square | square |
 
 These are `FrameColors`' defaults, taken from a GTK theme's CSS so a Qt window's frame matches the GTK apps beside it. Inactive is GTK's `:backdrop` — another window has focus — and follows Qt's window activation. The buttons light to `#2d5282` under the mouse and `#2c6dbc` while pressed; close turns red (`#c01c28`, pressed `#a51d2d`) with a white glyph. Override any of them:
 
@@ -341,7 +342,7 @@ Everything is attached to the one window it was handed. There is no event filter
 - **The window is made frameless** with `Qt.WindowType.FramelessWindowHint`, so no decoration plugin draws anything and nothing here depends on how one works inside.
 - **The window stays the window, and the frame lives inside it.** `apply_frame()` sets the window's own contents margins: `FRAME_BORDER_WIDTH` (2) on every side, plus the title bar's height on top. Qt lays a layout out inside its widget's contents rectangle, so the app's layout — a `QMainWindow`'s menu bar, or a menu bar given to `QLayout.setMenuBar()` — lands below the title bar and inside the border with no change to the app's code. The title bar is a child widget placed in the top margin, outside the layout.
 - **The border is a child widget, not the window's painting.** It covers the whole window, paints the window's background and the 2px ring round it, is transparent to the mouse, and is kept at the bottom of the stacking order, so the app's widgets cover it everywhere but the margin.
-- **The corners are rounded by painting, on a translucent window.** `apply_frame()` gives the window `WA_TranslucentBackground` (that window only), so Qt stops filling its background and the pixels outside the curve stay transparent for the compositor to show the desktop through. The border widget paints the background in its place, as a rectangle whose corners are rounded to `FRAME_CORNER_RADIUS` (16px; GNOME's own windows use 12), and stays shown in every window state for that reason; the title bar, and a caption button's hover fill, round their top corners to sit inside it. It is still one buffer per window painted in the usual order — only the alpha channel, and who fills the background, are new.
+- **The corners are rounded by painting, on a translucent window.** `apply_frame()` gives the window `WA_TranslucentBackground` (that window only), so Qt stops filling its background and the pixels outside the curve stay transparent for the compositor to show the desktop through. The border widget paints the background in its place, as a rectangle whose top corners are rounded to `FRAME_CORNER_RADIUS` (16px; GNOME's own windows use 12) and whose bottom corners are square, and stays shown in every window state for that reason; the title bar, and a caption button's hover fill, round their top corners to sit inside it. It is still one buffer per window painted in the usual order — only the alpha channel, and who fills the background, are new.
 - **The resize zones are an event filter on the window's `QWindow`.** Every mouse event for a top-level window reaches its `QWindow` before Qt hands it to the child widget under the pointer, so a filter there sees an edge even where the app's tree view or scroll bar runs up to it — a filter on the frame's own widgets would see nothing there. In the zone it sets the resize cursor and swallows the event, so the child under it sees neither the moves nor the press and release; outside it, events pass through untouched. It is installed on the first `Show`, because a widget has no `QWindow` until then.
 
 What the alternatives cost:
@@ -363,8 +364,8 @@ What the alternatives cost:
 ### What the rounded corners ask of a host
 
 - **Don't give a framed window a background of its own** — a stylesheet `background` on the window itself, or `setAutoFillBackground(True)`. Either paints the whole rectangle, square corners included. The frame paints the window's `Window` palette color for you; set the palette if you want another one.
-- **Content with an opaque background that runs into a bottom corner needs a few pixels of layout margin** — about 5px past the border clears the curve. A child flush against the border paints square over it. Transparent children (labels, a layout's empty space) need nothing.
-- **A window tiled to half the screen keeps its rounded corners.** Qt exposes no tiled state on Wayland, so only maximized and fullscreen square them.
+- **Content running into a bottom corner needs nothing.** The bottom corners are square, so a status bar or pane flush against the border meets it cleanly. Only the top corners curve, and the title bar is what sits in them.
+- **A window tiled to half the screen keeps its rounded top corners.** Qt exposes no tiled state on Wayland, so only maximized and fullscreen square them.
 
 ### What is lost against the system title bar
 
@@ -374,7 +375,7 @@ File dialogs that Qt hands to the desktop (the GTK or portal file chooser) belon
 
 ### Testing it
 
-What a test can reach is checked in `tests/test_frame.py`: `resize_edges()` (pure geometry) and `edge_cursor()`; where the frame puts the app's layout in each window state; which buttons there are and what they do; the painted colors, active and inactive; transparent corners, square while maximized; and that the `QWindow` filter swallows events in the zone and passes them through elsewhere. `startSystemMove()`/`startSystemResize()` are only checked for being called with the right edges — under `QT_QPA_PLATFORM=offscreen` nothing moves a window — so dragging, resizing and snapping have to be tried by hand on a real desktop.
+What a test can reach is checked in `tests/test_frame.py`: `resize_edges()` (pure geometry) and `edge_cursor()`; where the frame puts the app's layout in each window state; which buttons there are and what they do; the painted colors, active and inactive; transparent top corners (square while maximized) and square bottom ones; and that the `QWindow` filter swallows events in the zone and passes them through elsewhere. `startSystemMove()`/`startSystemResize()` are only checked for being called with the right edges — under `QT_QPA_PLATFORM=offscreen` nothing moves a window — so dragging, resizing and snapping have to be tried by hand on a real desktop.
 
 ---
 
