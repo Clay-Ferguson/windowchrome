@@ -1,6 +1,6 @@
 """Shared widget looks for PyQt6 apps on Linux: a viewer, scroll bars, indicators.
 
-Six unrelated things live here, and none of them has any setup or ordering
+Seven unrelated things live here, and none of them has any setup or ordering
 around the QApplication to get right.
 
 The markdown viewer, for showing an application's own documentation inside
@@ -32,6 +32,12 @@ widget rather than a stylesheet, because the shape itself differs:
 
     windowchrome.ToggleSwitch(parent, on_color=...)
 
+A menu bar and drop-down menus with a light gray edge where Fusion draws a
+near-black one, and room around each item:
+
+    windowchrome.apply_menus(menu_bar, highlight=...)   # per bar or menu
+    windowchrome.menu_style()                    # the stylesheet on its own
+
 A title bar and border drawn by the app, in place of the system's — one
 call per top-level window, before it is shown:
 
@@ -61,6 +67,17 @@ from .frame import (
 )
 from .markdowndialog import MarkdownDialog, close_markdown_windows, show_markdown
 from .markdownview import MarkdownView, heading_slug, heading_slugs
+from .menus import (
+    DIVIDER_BORDER,
+    DIVIDER_COLOR,
+    MENU_BAR_ITEM_PADDING,
+    MENU_BAR_PADDING,
+    MENU_ITEM_MIN_WIDTH,
+    MENU_ITEM_PADDING,
+    MENU_PADDING,
+    apply_menus,
+    menu_style,
+)
 from .radiobuttons import (
     RADIO_BORDER_WIDTH,
     RADIO_INDICATOR_SIZE,
@@ -85,8 +102,15 @@ from .toggleswitch import (
 __all__ = [
     "CAPTION_BUTTON_WIDTH",
     "CHECKBOX_SCALE",
+    "DIVIDER_BORDER",
+    "DIVIDER_COLOR",
     "FRAME_BORDER_WIDTH",
     "FRAME_CORNER_RADIUS",
+    "MENU_BAR_ITEM_PADDING",
+    "MENU_BAR_PADDING",
+    "MENU_ITEM_MIN_WIDTH",
+    "MENU_ITEM_PADDING",
+    "MENU_PADDING",
     "MIN_SCROLLBAR_EXTENT",
     "RADIO_BORDER_WIDTH",
     "RADIO_INDICATOR_SIZE",
@@ -110,12 +134,14 @@ __all__ = [
     "WindowFrame",
     "apply_checkboxes",
     "apply_frame",
+    "apply_menus",
     "apply_radios",
     "apply_scrollbars",
     "close_markdown_windows",
     "edge_cursor",
     "heading_slug",
     "heading_slugs",
+    "menu_style",
     "radio_style",
     "resize_edges",
     "scrollbar_style",

@@ -2,7 +2,7 @@
 
 This project is a dependency that's required by Sonar, Start Menu, Postit, and Lingo which are the four PyQt6 apps available under the 'clay-ferguson' github repositories. To use any of those four applications you'll need to have this project in a sibling folder next to those folders
 
-This package does six unrelated things for a PyQt6 application on Linux:
+This package does seven unrelated things for a PyQt6 application on Linux:
 
 1. **A markdown viewer** (§5), so an app can show its own documentation — whatever is in its `docs/` folder — inside itself, with working links and images.
 2. **Wide scroll bars** (§9), about twice the thickness the desktop draws, so they are easier to grab with the mouse. Per scroll area, opt-in, and self-contained.
@@ -10,8 +10,9 @@ This package does six unrelated things for a PyQt6 application on Linux:
 4. **A toggle switch** (§11) — a track with a sliding knob, to put where a check box would have gone. A widget you construct rather than a style you apply, and self-contained in the same way.
 5. **Check boxes** (§12) with an enlarged indicator, keeping the tick Qt draws. A style rather than a stylesheet, for the reason §12 gives. Per box, opt-in, and self-contained in the same way.
 6. **A title bar and window frame** (§13) drawn by the app itself — a navy title bar and a gray border in place of the system's. One call per top-level window, opt-in, and self-contained in the same way.
+7. **Menus** (§14): a menu bar and drop-downs with a light gray edge where Fusion draws a near-black one, and room around each item. Per menu bar, opt-in, and self-contained in the same way.
 
-None of them needs a setup call, an ordering rule around `QApplication`, or any particular platform. Written for an AI agent integrating it into an existing app: §3 covers installation, and each of §5, §9, §10, §11, §12 and §13 is self-contained.
+None of them needs a setup call, an ordering rule around `QApplication`, or any particular platform. Written for an AI agent integrating it into an existing app: §3 covers installation, and each of §5, §9, §10, §11, §12, §13 and §14 is self-contained.
 
 **The window frame (§13) replaces an earlier one, and is built differently on purpose.** This library used to color the system's own title bar, by choosing Qt's `bradient` Wayland decoration plugin and repurposing application palette roles and the application font for it, handed back to every widget through an application-wide event filter. That was removed as too fragile — it rested on undocumented plugin internals and leaked into every consuming app. §13 draws its own frame on a frameless window with documented Qt API only, touches nothing application-wide, and depends on no decoration plugin. Do not bring back any part of the old approach.
 
@@ -164,6 +165,15 @@ Windows are modeless and kept in a module-level dict keyed by the resolved path,
 | A dialog's title bar is the system's | That dialog was not handed to `apply_frame()` — typically a static `QMessageBox.critical()` call. Build the box, frame it, then `exec()` it. A desktop file chooser keeps the system's bar by design. |
 | No resize cursor at an edge | The window is maximized or fullscreen, or fixed in that axis (`setFixedSize()`; a `QMessageBox` always is). |
 | A crash, or `wrapped C/C++ object … has been deleted`, painting a title bar | Something in the frame holds a reference to its window, so the window is freed by the cycle collector at an arbitrary moment. See §13. |
+
+**Menus (§14):**
+
+| Symptom | Cause |
+| --- | --- |
+| A near-black line under the menu bar | The bar was never handed to `apply_menus()`, or a later `setStyleSheet()` on it replaced the sheet. |
+| One drop-down has a near-black edge and cramped items | That `QMenu` was built on its own — `QMenu(self)`, or added with `addMenu(menu)` — so it is the window's child, not the bar's. Pass it to `apply_menus()` too. |
+| A text field's right-click menu is unstyled | Qt builds it inside the widget on the fly; §14 does not reach it. |
+| The menus are light on a dark desktop | The dark palette was set on the window, not the application. A styled bar does not inherit its parent's palette. |
 
 ---
 
@@ -365,3 +375,62 @@ File dialogs that Qt hands to the desktop (the GTK or portal file chooser) belon
 ### Testing it
 
 What a test can reach is checked in `tests/test_frame.py`: `resize_edges()` (pure geometry) and `edge_cursor()`; where the frame puts the app's layout in each window state; which buttons there are and what they do; the painted colors, active and inactive; transparent corners, square while maximized; and that the `QWindow` filter swallows events in the zone and passes them through elsewhere. `startSystemMove()`/`startSystemResize()` are only checked for being called with the right edges — under `QT_QPA_PLATFORM=offscreen` nothing moves a window — so dragging, resizing and snapping have to be tried by hand on a real desktop.
+
+---
+
+## 14. Menus
+
+Under Fusion on a dark palette, the line along the bottom of the menu bar and the edge round each drop-down come out near-black, and vanish against the window behind them; the items are packed at the bare height of their text. `menu_style()` returns a Qt stylesheet that draws them with a light gray edge and room around each item, and `apply_menus()` puts it on a menu bar:
+
+```python
+from windowchrome import apply_menus
+
+apply_menus(self.menuBar())                       # follows the palette
+apply_menus(menu_bar, highlight=HIGHLIGHT_BG, highlighted_text=HIGHLIGHT_FG,
+            hover=HOVER_BG, point_size=UI_POINT_SIZE - 1)
+```
+
+Like §9–§13: nothing to call before or after the `QApplication`, no platform requirement, and opt-in one menu bar at a time rather than an application-wide stylesheet. It sets a stylesheet on each widget it is handed and keeps nothing — no reference to the widget, nothing on the application.
+
+### What reaches what
+
+Set on a `QMenuBar`, the sheet reaches every drop-down and submenu made with `addMenu(title)`, because Qt makes that `QMenu` the bar's (or the menu's) child. A `QMenu` built on its own is not — a context menu made with `QMenu(self)` and `exec()`, or one handed to the bar with `addMenu(menu)`, is the window's child, and inherits nothing from the bar. Pass it to `apply_menus()` itself; any number of bars and menus can go in one call. The right-click menus Qt builds for a `QLineEdit`, a `QPlainTextEdit` or a `QTextBrowser` are made on the fly inside the widget, and this does not reach them.
+
+### What a host passes
+
+Only the parts an app may make its own, all keyword arguments:
+
+| Argument | Is | Default |
+|---|---|---|
+| `highlight` | a selected item in a drop-down, and an open title on the bar | `palette(highlight)` |
+| `highlighted_text` | the text on it | `palette(highlighted-text)` |
+| `hover` | a title on the bar under the mouse, not yet open — a background only; the text keeps its color | the full highlight |
+| `point_size` | the font size of the bar and its menus | the widgets' own font |
+
+Colors take a `QColor` or a string. A string goes into the sheet as written, so `"#9e4b2e"`, `"rgba(158, 75, 46, 56)"` and `"palette(highlight)"` all work. A `QColor` is written out as `rgba(…)`, keeping its alpha (`QColor.name()` would drop it, and a hover wash depends on it). An app that leaves the colors out follows the desktop's highlight, as its unstyled menus did.
+
+Everything else is the shared look, not an argument: `DIVIDER_BORDER`, the padding (`MENU_BAR_PADDING` `2px 4px`, `MENU_BAR_ITEM_PADDING` `6px 14px`, `MENU_PADDING` `6px 0`, `MENU_ITEM_PADDING` `8px 22px`) and `MENU_ITEM_MIN_WIDTH` (200px).
+
+### Things that are deliberate
+
+- **The gray replaces Fusion's line rather than covering it.** The bar's rule carries `border-bottom: 1px solid #9a9a9a`; once a `QMenuBar` rule has a border, Qt paints the bar from the stylesheet instead of handing it to the native style, so Fusion's own line is not drawn at all. Measured: past the titles, every row of the bar but the last is the window color, and the last is the gray.
+- **A drop-down with a border has its background stated beside it** (`background: palette(window)`). A bordered `QMenu` is no longer painted natively, and without a background the items can come out with no panel behind them.
+- **The selected colors are restated, because an item rule draws a background.** `QMenu::item` carries `background: transparent`, and once an item rule draws anything Qt stops handing items to the native style — hover and selection included. A sheet that gave items padding and a background and stopped there would highlight nothing under the pointer. The same goes for the bar's titles.
+- **The `min-width` is on the item, not the menu.** It is what opens a gap between a label and its right-aligned shortcut, which otherwise sit almost touching ("Undo Cut Ctrl+Z"). A width on `QMenu` widens the frame but leaves the items, and their highlight, at their natural width.
+- **The highlight is `QMenu::item:selected:enabled`.** A disabled item the mouse is over is left exactly as it was. The obvious alternative, a `:disabled:selected` rule clearing the background, is not enough: measured, it cleared the background but the text kept the `:selected` rule's color, so a hovered disabled item turned bright as if it could be chosen.
+- **The defaults are `palette()` references, not colors read at call time.** Qt resolves `palette(highlight)` and `palette(window)` against the widget's palette when it is polished, so the menus follow the palette the app actually runs with.
+- **The gray is pinned, not derived.** It has to read against a light surface and a dark one alike; a color derived from the palette suits one of them. `DIVIDER_BORDER` (`1px solid #9a9a9a`) and `DIVIDER_COLOR` are exported so that a host's other lines — under a header, above a status bar or a footer — are the same gray without a second copy of it.
+
+### What the stylesheet asks of a host
+
+- **Set a dark palette on the application, not on the window.** A widget carrying a stylesheet is cut off from its parent's palette, so a bar styled here does not see a palette set on the main window — it falls back to the application's. Every app this library serves sets its palette on the `QApplication`, where a desktop theme puts it anyway.
+- **Don't style the bar or its menus a second time.** A later `setStyleSheet()` on the bar replaces this one outright. Rules of the app's own go in a sheet on some other widget, or are a case for an argument here.
+
+### Testing it
+
+`tests/test_menus.py` reads pixels from offscreen grabs (`WA_DontShowOnScreen`, `show()`, `processEvents()`, `grab()`) with `QImage.pixelColor()` — `QColor(image.pixel())` drops the alpha. Two things to know before adding to it:
+
+- **Offscreen Fusion's palette is light**, so its own bar line there is a soft gray (`#d6d6d6`), not the near-black one. The dark case sets the *application* palette for the length of one test and puts it back, for the reason under "What the stylesheet asks of a host".
+- **Offscreen Fusion never lets a disabled item become the active one** (`SH_Menu_AllowActiveAndDisabled` answers 0), so a test that hovers a disabled item and checks it is not highlighted passes without testing anything. The test gives its menu a parented `QProxyStyle` answering 1, and asserts the disabled action really is active before looking at the pixels.
+
+Both checks above — one line, not two; a hovered disabled item left alone — fail when the rule they guard is taken out.

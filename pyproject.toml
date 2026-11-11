@@ -1,7 +1,7 @@
 [project]
 name = "windowchrome"
 version = "0.1.0"
-description = "Shared widget looks for PyQt6 apps on Linux: markdown viewer, wide scroll bars, radio, check box, toggle switch and window frame."
+description = "Shared widget looks for PyQt6 apps on Linux: markdown viewer, wide scroll bars, radio, check box, toggle switch, window frame and menus."
 requires-python = ">=3.10"
 dependencies = ["PyQt6>=6.6"]
 
