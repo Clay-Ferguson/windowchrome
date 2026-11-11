@@ -132,3 +132,29 @@ def test_the_base_reaches_the_bars(qapp, qtbot):
     qtbot.addWidget(edit)
     apply_scrollbars(edit, DARK)
     assert edit.verticalScrollBar().styleSheet() == scrollbar_style(DARK)
+
+
+# -- a pinned handle --------------------------------------------------------
+
+
+def handle_of(sheet):
+    body = rule(sheet, "QScrollBar::handle")
+    return QColor(body.split("background:")[1].split(";")[0].strip())
+
+
+@pytest.mark.parametrize("pinned", ["#777777", QColor("#777777")])
+def test_a_pinned_handle_is_used_as_given(qapp, pinned):
+    assert handle_of(scrollbar_style(DARK, pinned)) == QColor("#777777")
+
+
+def test_a_pinned_handle_still_gets_a_hover_in_the_same_direction(qapp):
+    sheet = scrollbar_style(DARK, "#777777")
+    hover = QColor(rule(sheet, "QScrollBar::handle:hover").split("background:")[1].split(";")[0].strip())
+    assert hover.lightness() > QColor("#777777").lightness()
+
+
+def test_the_handle_reaches_the_bars(qapp, qtbot):
+    edit = QPlainTextEdit()
+    qtbot.addWidget(edit)
+    apply_scrollbars(edit, DARK, "#777777")
+    assert edit.verticalScrollBar().styleSheet() == scrollbar_style(DARK, "#777777")

@@ -2,26 +2,27 @@
 
 This project is a dependency that's required by Sonar, Start Menu, Postit, and Lingo which are the four PyQt6 apps available under the 'clay-ferguson' github repositories. To use any of those four applications you'll need to have this project in a sibling folder next to those folders
 
-This package does five unrelated things for a PyQt6 application on Linux:
+This package does six unrelated things for a PyQt6 application on Linux:
 
 1. **A markdown viewer** (§5), so an app can show its own documentation — whatever is in its `docs/` folder — inside itself, with working links and images.
 2. **Wide scroll bars** (§9), about twice the thickness the desktop draws, so they are easier to grab with the mouse. Per scroll area, opt-in, and self-contained.
 3. **Radio buttons** (§10) with an enlarged, visibly outlined indicator, in place of the small near-black one the desktop draws. Per button, opt-in, and self-contained in the same way.
 4. **A toggle switch** (§11) — a track with a sliding knob, to put where a check box would have gone. A widget you construct rather than a style you apply, and self-contained in the same way.
 5. **Check boxes** (§12) with an enlarged indicator, keeping the tick Qt draws. A style rather than a stylesheet, for the reason §12 gives. Per box, opt-in, and self-contained in the same way.
+6. **A title bar and window frame** (§13) drawn by the app itself — a navy title bar and a gray border in place of the system's. One call per top-level window, opt-in, and self-contained in the same way.
 
-None of them needs a setup call, an ordering rule around `QApplication`, or any particular platform. Written for an AI agent integrating it into an existing app: §3 covers installation, and each of §5, §9, §10, §11 and §12 is self-contained.
+None of them needs a setup call, an ordering rule around `QApplication`, or any particular platform. Written for an AI agent integrating it into an existing app: §3 covers installation, and each of §5, §9, §10, §11, §12 and §13 is self-contained.
 
-**There is no window chrome here, deliberately.** This library used to color the title bar and window frame, by choosing Qt's `bradient` Wayland decoration plugin and repurposing application palette roles and the application font for it. That was removed as too fragile — it rested on undocumented plugin internals and leaked into every consuming app. Do not reintroduce it.
+**The window frame (§13) replaces an earlier one, and is built differently on purpose.** This library used to color the system's own title bar, by choosing Qt's `bradient` Wayland decoration plugin and repurposing application palette roles and the application font for it, handed back to every widget through an application-wide event filter. That was removed as too fragile — it rested on undocumented plugin internals and leaked into every consuming app. §13 draws its own frame on a frameless window with documented Qt API only, touches nothing application-wide, and depends on no decoration plugin. Do not bring back any part of the old approach.
 
-The numbering is historical: the sections that described the title bar (§1, §4, §6, §7) are gone, and the rest keep their numbers because the consuming apps cite them from their own `AGENTS.md`.
+The numbering is historical: the sections that described the old title bar (§1, §4, §6, §7) are gone, and the rest keep their numbers because the consuming apps cite them from their own `AGENTS.md`.
 
 ---
 
 ## 2. Requirements
 
 - PyQt6 (≥ 6.6). No other dependency.
-- No platform requirement: nothing here depends on Wayland, X11 or the window manager.
+- No platform requirement: nothing here depends on Wayland, X11 or the window manager. §13 is written for Wayland and tested by hand only there, but uses no platform-specific API, so it works under X11 too.
 
 ## 3. Installation
 
@@ -154,6 +155,16 @@ Windows are modeless and kept in a module-level dict keyed by the resolved path,
 | `RuntimeError: wrapped C/C++ object has been deleted` | Something called a method on a registered dialog after it was dismissed, or eviction compares with `==` rather than `is`. |
 | The app does not exit after its main window closes | Only possible with an *unparented* window: it becomes a primary window. Parent the dialog, and call `close_markdown_windows()` from `closeEvent`. |
 
+**The window frame (§13):**
+
+| Symptom | Cause |
+| --- | --- |
+| The system title bar is still there, above the drawn one | `apply_frame()` ran after the window was shown on a platform that cannot change a live window's flags, or not at all. Call it before the first `show()`. |
+| The app's content overlaps the title bar | Something set the *window's* contents margins after the frame did, or the content was positioned by hand rather than by a layout. The frame owns the window's margins; put margins on the layout instead. |
+| A dialog's title bar is the system's | That dialog was not handed to `apply_frame()` — typically a static `QMessageBox.critical()` call. Build the box, frame it, then `exec()` it. A desktop file chooser keeps the system's bar by design. |
+| No resize cursor at an edge | The window is maximized or fullscreen, or fixed in that axis (`setFixedSize()`; a `QMessageBox` always is). |
+| A crash, or `wrapped C/C++ object … has been deleted`, painting a title bar | Something in the frame holds a reference to its window, so the window is freed by the cycle collector at an arbitrary moment. See §13. |
+
 ---
 
 ## 9. Wide scroll bars
@@ -175,6 +186,12 @@ Four things about it are deliberate, and each looks like something worth simplif
 - **The steppers have to be described.** Styling a scroll bar at all opts it out of native drawing, so the groove, the handle *and* both stepper buttons become this stylesheet's problem. `add-line`/`sub-line` are explicitly collapsed to zero size: left undescribed they render as blank boxes at each end. Zero-sized steppers also give the handle the whole length of the bar, which is the point of the extra width.
 - **The contrast goes both ways.** The handle is `base.lighter(230)` on a dark pane and `base.darker(140)` on a light one, chosen by `base.lightness() < 128`, with hover a further step in the same direction. A single pinned gray suits exactly one of the two themes.
 - **The stylesheet goes on the two `QScrollBar` children, never on the scroll area.** The area keeps its native rendering and only the bars change.
+
+A host that wants a particular handle color — to match another toolkit's bars, say — passes `handle=` as well; the hover is still derived from it, a step further from `base`. Leave it out and the handle follows `base` as above, which is the right default: a pinned gray suits one theme.
+
+```python
+apply_scrollbars(self.tree, handle="#777777")
+```
 
 ### The `base` argument
 
@@ -257,3 +274,85 @@ One thing to know before writing a test or debugging one: **`box.style()` does n
 Nothing here reads the palette, unlike §9 and §10: the native drawing already follows the theme, and only the size was ever wrong. `LargeIndicatorStyle` is exported for a host that wants the style object itself — to hand to a widget `apply_checkboxes()` does not cover, say — but the applier is the interface.
 
 Where a check box is the wrong *shape* rather than the wrong size — an on/off setting the app wants to state loudly — `ToggleSwitch` (§11) is the other answer.
+
+---
+
+## 13. The window frame
+
+The system title bar on GNOME under Wayland is drawn by a Qt decoration plugin (`adwaita` or `bradient`) with no color setting, and on a dark theme it comes out as dark as the window's own background, so nothing separates the window from its contents. `apply_frame()` hides it and draws one of the app's own: a title bar with the title centered and minimize, maximize and close buttons on the right, and a 2px border round the whole window.
+
+```python
+from windowchrome import apply_frame
+
+window = MainWindow()
+apply_frame(window)        # once, before the window is first shown
+window.show()
+```
+
+```python
+box = QMessageBox(QMessageBox.Icon.Warning, title, text, parent=self)
+apply_frame(box)           # a dialog: a close button only
+box.exec()
+```
+
+Like §9–§12: nothing to call before or after the `QApplication`, no platform-specific code, and opt-in one window at a time. It takes any top-level `QWidget` — a plain one with a layout, a `QMainWindow`, a `QDialog`, or a `QMessageBox` built as an instance (the static `QMessageBox.critical()` and friends build and run their box in one call, so there is nothing to hand it; a host wraps them in a helper that builds the box, frames it and runs it).
+
+### What it looks like
+
+| Part | Active window | Inactive window |
+|---|---|---|
+| Title bar | `#1e3a5f` | `#112238` |
+| Title and button glyphs | `#ffffff` | `#8fa1b8` |
+| 2px line along the bar's bottom, inside it | `#2c6dbc` | `#1c3d5a` |
+| Border, 2px | `#777777` | `#777777` |
+
+These are `FrameColors`' defaults, taken from a GTK theme's CSS so a Qt window's frame matches the GTK apps beside it. Inactive is GTK's `:backdrop` — another window has focus — and follows Qt's window activation. The buttons light to `#2d5282` under the mouse and `#2c6dbc` while pressed; close turns red (`#c01c28`, pressed `#a51d2d`) with a white glyph. Override any of them:
+
+```python
+apply_frame(window, FrameColors(title_bg="#3b2a1e", title_line="#bc6d2c"))
+frame.set_colors(...)      # later, on the WindowFrame apply_frame returned
+```
+
+The title bar's height comes from its (bold) font, at least `TITLE_BAR_MIN_HEIGHT` (36). The title is centered in the space left of the buttons and elided if it doesn't fit, and follows `setWindowTitle()`. A `QDialog` (so a `QMessageBox` too) gets only a close button, as a dialog does on GNOME; `minimize=`/`maximize=` override that either way. Without a maximize button, double-clicking the bar does nothing.
+
+| Action | Result |
+|---|---|
+| Drag the title bar | Moves the window (`QWindow.startSystemMove()`), once the mouse has moved the desktop's drag distance |
+| Double-click the title bar | Maximize / restore |
+| Drag within 8px of an edge, 16px of a corner | Resizes (`QWindow.startSystemResize()`), with the matching cursor |
+| Maximized | No border, no resize zones; the title bar stays, and the maximize button shows a restore glyph |
+| Fullscreen | No border, no resize zones, no title bar |
+
+### How it is built, and why this way
+
+Everything is attached to the one window it was handed. There is no event filter on `QApplication`, no application palette or stylesheet change, and nothing reaches into a decoration plugin — the three things that sank the old title-bar code (see the top of this README).
+
+- **The window is made frameless** with `Qt.WindowType.FramelessWindowHint`, so no decoration plugin draws anything and nothing here depends on how one works inside.
+- **The window stays the window, and the frame lives inside it.** `apply_frame()` sets the window's own contents margins: `FRAME_BORDER_WIDTH` (2) on every side, plus the title bar's height on top. Qt lays a layout out inside its widget's contents rectangle, so the app's layout — a `QMainWindow`'s menu bar, or a menu bar given to `QLayout.setMenuBar()` — lands below the title bar and inside the border with no change to the app's code. The title bar is a child widget placed in the top margin, outside the layout.
+- **The border is a child widget, not the window's painting.** It covers the whole window, paints only the outer 2px, is transparent to the mouse, and is kept at the bottom of the stacking order, so the app's widgets cover it everywhere but the margin.
+- **The resize zones are an event filter on the window's `QWindow`.** Every mouse event for a top-level window reaches its `QWindow` before Qt hands it to the child widget under the pointer, so a filter there sees an edge even where the app's tree view or scroll bar runs up to it — a filter on the frame's own widgets would see nothing there. In the zone it sets the resize cursor and swallows the event, so the child under it sees neither the moves nor the press and release; outside it, events pass through untouched. It is installed on the first `Show`, because a widget has no `QWindow` until then.
+
+What the alternatives cost:
+
+- **A wrapper widget around the app's content** takes the window's identity away from the app's code: `close()`, `setWindowTitle()`, the window state and activation all belong to the top-level widget, and would have to be forwarded. For a `QDialog` it cannot work at all — `exec()`, `accept()` and `reject()` need the dialog to *be* the window.
+- **A margin around a child `QMainWindow`** is the same thing: an embedded `QMainWindow` stops being a window.
+- **A stylesheet border on the content area** cascades into every child and severs palette inheritance — the reason §9 styles scroll bars one at a time — and does nothing for the title bar or for resizing.
+
+### Things that are deliberate
+
+- **The resize zone reaches into the content.** `RESIZE_GRAB_WIDTH` (8) from the outer edge: the 2px border plus 6px of whatever is inside, since 2px alone is too thin to hit. `RESIZE_CORNER_LENGTH` (16) along each edge from a corner counts as the corner. A window fixed in one axis (`setFixedWidth()`; a `QMessageBox` fixes both) offers no zones along it.
+- **The move starts after the drag distance, not on the press.** Starting it on the press hands the pointer to the compositor before a second click can arrive, which makes double-click-to-maximize unreliable; GTK waits for the same threshold. On Wayland the compositor still accepts the move, because the button is held from the press it answers.
+- **The button glyphs are painted, not icons.** Yaru ships only a close icon. Adwaita ships all four, but only as dark symbolic SVGs, which need Qt's SVG plugin to load at all (the `libqt6svg6` trap) and would then have to be recolored for this bar, for the inactive state and for the close button's hover. Each glyph is one to four 1px strokes in the color the state calls for — sharp at any scale factor, with no files.
+- **Nothing in the frame holds a reference to its window.** The frame finds the window as its parent, and the buttons call the title bar's own methods rather than being connected to `window.close` and friends. A reference back would put the window in a reference cycle, so it would be freed whenever Python's cycle collector next ran instead of when its last reference went — measured, in the middle of painting the title bar, which crashed. `test_the_frame_does_not_keep_its_window_alive` is the guard.
+- **The window's contents margins belong to the frame.** A host that sets them on the window itself is overwritten on the next resize. Margins on the window's *layout* are untouched and still apply inside the frame.
+- **No drop shadow.** GNOME draws none round an app-drawn frame, and faking one needs a translucent margin round the window. Qt has no public API to tell a Wayland compositor that margin is not part of the window, so maximizing and tiling would leave a visible gap. The border does the job.
+
+### What is lost against the system title bar
+
+GNOME's window menu on a right-click of the title bar (Always on Top, Move to Workspace, …): opening it from an app needs Qt's private Wayland API. **Alt+Space** still opens it for the focused window, framed or not. An app cannot set always-on-top itself on Wayland — `Qt.WindowType.WindowStaysOnTopHint` works under X11, but the Wayland protocol has no request for it, so the user's choice in that menu is the only way.
+
+File dialogs that Qt hands to the desktop (the GTK or portal file chooser) belong to another process and keep the system's title bar. That is expected, and not worth trading the native chooser for Qt's own.
+
+### Testing it
+
+What a test can reach is checked in `tests/test_frame.py`: `resize_edges()` (pure geometry) and `edge_cursor()`; where the frame puts the app's layout in each window state; which buttons there are and what they do; the painted colors, active and inactive; and that the `QWindow` filter swallows events in the zone and passes them through elsewhere. `startSystemMove()`/`startSystemResize()` are only checked for being called with the right edges — under `QT_QPA_PLATFORM=offscreen` nothing moves a window — so dragging, resizing and snapping have to be tried by hand on a real desktop.

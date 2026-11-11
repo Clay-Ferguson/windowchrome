@@ -18,7 +18,9 @@ SCROLLBAR_SCALE = 2
 MIN_SCROLLBAR_EXTENT = 12
 
 
-def scrollbar_style(base: QColor | None = None) -> str:
+def scrollbar_style(
+    base: QColor | None = None, handle: QColor | str | None = None
+) -> str:
     """Qt stylesheet making a scroll bar about twice the usual thickness.
 
     Applied to the individual scroll bars of a pane rather than to the pane
@@ -40,6 +42,11 @@ def scrollbar_style(base: QColor | None = None) -> str:
     is; a host that paints its field some other color — one derived from
     `Base`, say — passes that color instead, or the groove shows through as
     a visibly different shade against the field.
+
+    `handle` pins the handle's color — a host matching some other toolkit's
+    bars, say. Left out, it is derived from `base` as below. Either way the
+    hover is a step further from `base` than the handle, in the same
+    direction the derived handle goes.
     """
     extent = QApplication.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
     thickness = max(extent, MIN_SCROLLBAR_EXTENT) * SCROLLBAR_SCALE
@@ -50,7 +57,9 @@ def scrollbar_style(base: QColor | None = None) -> str:
     # that is depends on the theme: lighten on a dark pane, darken on a light
     # one. Derived from the palette so the bars follow the desktop rather than
     # pinning a gray that only suits one of the two.
-    handle = base.lighter(230) if base.lightness() < 128 else base.darker(140)
+    if handle is None:
+        handle = base.lighter(230) if base.lightness() < 128 else base.darker(140)
+    handle = QColor(handle)
     hover = handle.lighter(120) if base.lightness() < 128 else handle.darker(115)
     margin = 2
     radius = (thickness - 2 * margin) // 2
@@ -77,13 +86,15 @@ def scrollbar_style(base: QColor | None = None) -> str:
     """
 
 
-def apply_scrollbars(area, base: QColor | None = None) -> None:
+def apply_scrollbars(
+    area, base: QColor | None = None, handle: QColor | str | None = None
+) -> None:
     """Give a scroll area's own bars the wider styling.
 
     The stylesheet goes on the two QScrollBar children, never on `area`
-    itself, so the area keeps whatever native rendering it had. `base` is
-    passed straight through to `scrollbar_style()`.
+    itself, so the area keeps whatever native rendering it had. `base` and
+    `handle` are passed straight through to `scrollbar_style()`.
     """
-    bars = scrollbar_style(base)
+    bars = scrollbar_style(base, handle)
     area.verticalScrollBar().setStyleSheet(bars)
     area.horizontalScrollBar().setStyleSheet(bars)
